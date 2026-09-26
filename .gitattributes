@@ -1,0 +1,17 @@
+# 统一换行符策略（重要）
+#
+# 仓库里一律保存 LF；检出到 Windows 时再按类型转换。
+# *.bat / *.cmd 必须是 CRLF：start.bat 里用了 goto / label，
+# 如果被检出成 LF，cmd 解析标签会错位（已实测）。
+* text=auto
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制文件不要做任何换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

@@ -1,0 +1,19 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# 编辑器 / 系统
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# 测试与构建缓存
+coverage/
+*.tsbuildinfo
+
+# 本地临时脚本（本仓库开发时使用）
+work/
+

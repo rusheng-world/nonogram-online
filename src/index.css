@@ -1,0 +1,285 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /*
+   * 移动端滚动模型（重要，改动前请先读完）
+   *
+   * 旧实现：html/body/#root 全部 height:100%，最外层容器再 overflow:hidden。
+   * 结果整个应用被钉死在「一屏」高度里：内容比屏幕高时不会产生滚动条，
+   * 手机上怎么滑都滑不动，页面底部的内容（难度卡片、底部工具栏等）永远看不到。
+   *
+   * 新实现：
+   *   · #root 用 min-height 而不是 height —— 至少铺满一屏，但允许内容把它撑高，
+   *     多出来的部分交给文档滚动（移动端最自然、最不会出 bug 的行为）；
+   *   · 高度单位用 dvh（动态视口高度）而不是 100% —— 手机浏览器地址栏伸缩时
+   *     高度会跟着变，不会出现「底部被浏览器工具栏盖住、又滚不上来」的经典问题，
+   *     老浏览器通过 @supports 回退到 vh。
+   */
+  html {
+    height: 100%;
+    background-color: #f6f7fb; /* ink-50：overscroll 时露出的底色要跟主题一致 */
+  }
+
+  html.dark {
+    background-color: #12151f; /* ink-950 */
+  }
+
+  body {
+    margin: 0;
+    min-height: 100%;
+    /*
+     * 注意：这里不要再写 overscroll-behavior-y: none。
+     * 它会连带吃掉移动端的下拉刷新和滚动链，是「手机上滑不动」的帮凶之一。
+     * 真正需要禁止滚动的场景（在棋盘上拖拽涂色）由 .nb-cell / 棋盘容器的
+     * touch-action: none 处理，不需要全局封锁。
+     */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #root {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  @supports (min-height: 100dvh) {
+    #root {
+      min-height: 100dvh;
+    }
+  }
+
+  :root {
+    --nb-cell-empty: #ffffff;
+    --nb-cell-filled: #232a41;
+    --nb-cell-hover: #eef2ff;
+    --nb-frame-bg: #ffffff;
+    --nb-grid-line: rgba(30, 34, 51, 0.16);
+    --nb-grid-strong: rgba(30, 34, 51, 0.42);
+    --nb-clue: #475069;
+    --nb-clue-dim: #b6bccb;
+    --nb-mark: #94a3b8;
+    --nb-wrong: #ef4444;
+    --nb-hover-band: rgba(59, 130, 246, 0.14);
+    --nb-cursor: #2563eb;
+  }
+
+  .dark {
+    --nb-cell-empty: #1b2131;
+    --nb-cell-filled: #93c5fd;
+    --nb-cell-hover: #263049;
+    --nb-frame-bg: #151a28;
+    --nb-grid-line: rgba(226, 232, 240, 0.14);
+    --nb-grid-strong: rgba(226, 232, 240, 0.38);
+    --nb-clue: #c3cbdd;
+    --nb-clue-dim: #5a6480;
+    --nb-mark: #64748b;
+    --nb-wrong: #f87171;
+    --nb-hover-band: rgba(147, 197, 253, 0.16);
+    --nb-cursor: #93c5fd;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 应用外壳                                                             */
+/* ------------------------------------------------------------------ */
+
+/*
+ * 需要「锁定一屏高度 + 内部滚动」的页面（游戏页、编辑器页）用这个类。
+ * 锁高度是为了让内部的 flex 布局能算出棋盘/画布可用空间；
+ * 内容装不下时由页面内部的滚动容器滚动，而不是被裁掉。
+ *
+ * 高度优先用 dvh（动态视口高度），并扣掉 iOS 底部手势条的安全区，
+ * 保证最下面一排按钮不会被系统手势区盖住。@supports 里如果 dvh 不被支持，
+ * 上面的 height: 100vh 会保留生效，属于安全降级。
+ */
+.app-screen {
+  height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  .app-screen {
+    height: 100dvh;
+  }
+}
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  .app-screen {
+    height: calc(100dvh - env(safe-area-inset-bottom, 0px));
+  }
+
+  /* 交给文档滚动的页面（首页 / 设置）：末尾补一段安全区，避免被手势条压住 */
+  .app-flow {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+/*
+ * 老浏览器兜底：不支持 dvh 时用的是大视口（100vh），底部会被地址栏盖住约 60~100px。
+ * 这里给 #root 多留一点高度，让文档能滚动，用户至少可以把底部内容滑上来，
+ * 而不是像以前那样被裁掉又滑不动。
+ * 现代浏览器（支持 dvh）不会命中这条规则。
+ */
+@supports not (height: 100dvh) {
+  #root {
+    min-height: calc(100vh + 88px);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 棋盘                                                                  */
+/* ------------------------------------------------------------------ */
+
+.nb-board {
+  position: relative;
+  display: grid;
+  gap: 0;
+}
+
+/* 棋盘外框（线索区 + 格子的容器） */
+.nb-frame {
+  padding: 6px;
+  border-radius: 12px;
+  background-color: var(--nb-frame-bg);
+  box-shadow: inset 0 0 0 1px var(--nb-grid-line);
+}
+
+.nb-cell {
+  position: relative;
+  box-sizing: border-box;
+  width: var(--nb-cell-size);
+  height: var(--nb-cell-size);
+  background-color: var(--nb-cell-empty);
+  box-shadow: inset -1px 0 0 var(--nb-grid-line), inset 0 -1px 0 var(--nb-grid-line);
+  transition: background-color 0.1s linear;
+  touch-action: none;
+  user-select: none;
+}
+
+.nb-cell[data-state='filled'] {
+  background-color: var(--nb-cell-filled);
+}
+
+.nb-cell[data-state='empty']:hover {
+  background-color: var(--nb-cell-hover);
+}
+
+/* 编辑器：已填充格也要有悬停提示，方便看出当前笔尖位置 */
+.nb-edit-cell:hover {
+  outline: 2px solid var(--nb-cursor);
+  outline-offset: -2px;
+}
+
+.nb-cell[data-state='marked']::before,
+.nb-cell[data-state='marked']::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 58%;
+  height: max(1px, calc(var(--nb-cell-size) * 0.1));
+  border-radius: 999px;
+  background-color: var(--nb-mark);
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.nb-cell[data-state='marked']::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+/* 严格 / 极限模式下的错误格：闪一下 + 抖动，之后保持描边 */
+.nb-cell[data-wrong='1'],
+.nb-cell[data-wrong='2'] {
+  outline: 2px solid var(--nb-wrong);
+  outline-offset: -2px;
+  background-color: color-mix(in srgb, var(--nb-wrong) 38%, var(--nb-cell-empty));
+  animation: nb-shake 0.4s ease-in-out;
+}
+
+.nb-cell[data-wrong='1'][data-state='filled'],
+.nb-cell[data-wrong='2'][data-state='filled'] {
+  background-color: var(--nb-wrong);
+}
+
+/* 极限模式：错误痕迹永久保留，修正后变暗 */
+.nb-cell[data-wrong='2'][data-corrected='1'] {
+  opacity: 0.5;
+}
+
+.nb-cursor-ring {
+  position: absolute;
+  pointer-events: none;
+  outline: 2px solid var(--nb-cursor);
+  outline-offset: -2px;
+  border-radius: 2px;
+}
+
+@keyframes nb-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-2px);
+  }
+  50% {
+    transform: translateX(2px);
+  }
+  75% {
+    transform: translateX(-1px);
+  }
+}
+
+/* 线索 */
+.nb-clue {
+  display: flex;
+  color: var(--nb-clue);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  font-weight: 600;
+}
+
+.nb-clue-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.nb-clue-num[data-done='1'] {
+  color: var(--nb-clue-dim);
+  text-decoration: line-through;
+}
+
+.nb-clue[data-active='1'] .nb-clue-num {
+  color: #2563eb;
+}
+
+.dark .nb-clue[data-active='1'] .nb-clue-num {
+  color: #93c5fd;
+}
+
+/* 滚动条（编辑器大棋盘） */
+.nb-scroll {
+  scrollbar-width: thin;
+}
+
+.nb-scroll::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.nb-scroll::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.45);
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nb-cell,
+  .nb-cell[data-wrong='1'],
+  .nb-cell[data-wrong='2'] {
+    animation: none;
+    transition: none;
+  }
+}
