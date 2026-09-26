@@ -1,4 +1,13 @@
-# 数织工坊 · Nonogram Studio
+# Nonogram Online（数织工坊）
+
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![Vite](https://img.shields.io/badge/Vite-5-646CFF.svg)](https://vitejs.dev/)
+[![React](https://img.shields.io/badge/React-18-61DAFB.svg)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)](https://www.typescriptlang.org/)
+[![Tests](https://img.shields.io/badge/tests-70%20passed-brightgreen.svg)](./tests)
+
+> **在线试玩：[https://rusheng-world.github.io/nonogram-online/](https://rusheng-world.github.io/nonogram-online/)**
+> （GitHub Pages 静态托管，打开即玩，无需安装任何东西）
 
 纯前端的在线数织（Nonogram / Picross）游戏：**自动生成谜题 + 算法难度分级 + 自定义编辑器 + 成绩存档**。
 零后端、零网络请求，构建后是纯静态站点，可以直接部署到 GitHub Pages / Vercel / Netlify / Cloudflare Pages。
@@ -7,6 +16,22 @@
 - 每道自动生成的题目都经过求解器验证：**有解且唯一解**（多解的题目直接丢弃）
 - 难度由**求解器的推理成本**（回溯次数 / 假设链深度 / 长线索交叉）评估，而不是只看尺寸
 - 桌面 + 移动端完整可用：鼠标、触摸、键盘全覆盖
+
+### 项目信息
+
+| 项目 | 内容 |
+| --- | --- |
+| 项目名称 | **Nonogram Online**（中文别名：数织工坊） |
+| 仓库 | <https://github.com/rusheng-world/nonogram-online> |
+| 在线地址 | <https://rusheng-world.github.io/nonogram-online/> |
+| 开源协议 | **MIT**（见 [`LICENSE`](./LICENSE)） |
+| 版权 | Copyright (c) 2026 rusheng-world |
+| 技术栈 | Vite 5 + React 18 + TypeScript（strict）+ Tailwind CSS 3 + Zustand 4 + Vitest 2 |
+| 生成方式 | **本项目由 `deepseek-v4.1-flash` 生成**（含代码、测试与本文档） |
+
+> **关于作者与生成方式**：本项目的全部代码、单元测试、构建脚本与文档均由 AI 模型
+> **deepseek-v4.1-flash** 生成，由 [rusheng-world](https://github.com/rusheng-world) 提出需求、
+> 复核与发布。项目以 MIT 协议开源，欢迎自由使用、修改与二次分发。
 
 ---
 
@@ -197,13 +222,36 @@ server: {
 
 ### 2.1 GitHub Pages
 
+> **本仓库已经部署好了**：线上地址 <https://rusheng-world.github.io/nonogram-online/>，
+> 部署方式是下面的「方式一（GitHub Actions）」，工作流文件就在
+> [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml)。
+> 之后每次 `git push` 到 `main` 都会自动重新构建并发布（约 1 分钟生效）。
+
 #### 方式一：GitHub Actions（推荐，推代码即自动部署）
 
 仓库里已经放好了工作流文件 `.github/workflows/deploy.yml`。你只需要：
 
-1. 把项目推到 GitHub 仓库的 `main` 分支；
-2. 打开仓库 **Settings → Pages**，把 **Source** 选成 **GitHub Actions**；
+1. 新建一个公开仓库（本项目叫 `nonogram-online`），把代码推到 `main` 分支：
+
+   ```bash
+   git init -b main
+   git add -A
+   git commit -m "feat: Nonogram Online"
+   git remote add origin https://github.com/<用户名>/nonogram-online.git
+   git push -u origin main
+   ```
+
+   用 [GitHub CLI](https://cli.github.com/) 的话一条命令就够：
+
+   ```bash
+   gh repo create nonogram-online --public --source . --remote origin --push
+   ```
+
+2. 打开仓库 **Settings → Pages**，把 **Source** 选成 **GitHub Actions**
+   （也可以用 `gh api -X POST repos/<用户名>/<仓库名>/pages -f build_type=workflow` 直接开）；
 3. 等一次 Actions 跑完（约 1 分钟），访问 `https://<用户名>.github.io/<仓库名>/`。
+   在仓库的 **Actions** 标签页里能看到 `Deploy to GitHub Pages` 这次运行；绿色的对勾就代表发布成功
+   （部署任务输出的 `page_url` 就是最终地址）。
 
 工作流内容（如需自己建，可复制）：
 
@@ -231,10 +279,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - uses: actions/configure-pages@v5
@@ -616,3 +662,42 @@ pnpm test        # 70 个用例，约 20 秒
 ## 十、文档
 
 - 设计取舍、算法原理与验收自测逐条结果见 [`DECISIONS.md`](./DECISIONS.md)。
+- 开源协议见 [`LICENSE`](./LICENSE)。
+
+## 十一、开源协议（MIT）
+
+本项目以 **MIT License** 开源，全文见 [`LICENSE`](./LICENSE)：
+
+```
+MIT License
+
+Copyright (c) 2026 rusheng-world
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+**你可以**：自由使用、复制、修改、合并、发布、分发、再授权、销售本软件；
+**条件是**：保留上述版权声明与许可声明；
+**不提供担保**：软件按「原样」提供，作者不对任何索赔或损失负责。
+
+## 十二、如何参与 / 联系
+
+- 发现问题或有建议：在仓库开一个 [Issue](https://github.com/rusheng-world/nonogram-online/issues)；
+- 想改代码：Fork → 新建分支 → 改完跑 `pnpm test && pnpm run build` → 提 Pull Request；
+- 项目由 AI 模型 **deepseek-v4.1-flash** 生成，后续维护与发布由 [rusheng-world](https://github.com/rusheng-world) 负责。

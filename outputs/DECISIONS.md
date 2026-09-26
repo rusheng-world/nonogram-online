@@ -1,8 +1,10 @@
 # 决策记录 + 验收标准逐条自测
 
-项目：数织工坊（Nonogram Studio）· 纯前端在线数织
+项目：**Nonogram Online**（中文别名：数织工坊）· 纯前端在线数织 · MIT 开源
+仓库：<https://github.com/rusheng-world/nonogram-online> ｜ 在线试玩：<https://rusheng-world.github.io/nonogram-online/>
 技术栈：Vite 5 + React 18 + TypeScript（strict）+ Tailwind CSS 3 + Zustand 4
 测试：Vitest 2（7 个文件 / 70 个用例）
+生成方式：本项目（代码、测试、脚本与文档）由 **deepseek-v4.1-flash** 生成
 
 ---
 
@@ -352,6 +354,73 @@
 新增验收断言：`tests/acceptance.test.ts` 里「各档 20 题退化线总数 ≤ 上限（困难/专家 ≤ 1，
 实测 0）」+ `countDegenerateLines` 的边界用例（全空 / 全满 / 中心一格 / 3×5 矩形 / 无退化）。
 
+### D28. 项目改名为 Nonogram Online，并以 MIT 开源 + 署名生成模型（本轮）
+
+- 对外统一名称 **Nonogram Online**（中文别名保留「数织工坊」，英文名做标题、中文名做副标题，
+  既有用户不会因为一次改名找不到项目）。改动点：`package.json` 的 `name`/`description`/`homepage`、
+  `index.html` 的 `<title>` 与 `description`、首页头部、设置页「关于」、「start/build/share.bat」的窗口标题与横幅。
+- **协议选 MIT**：本项目是纯前端小工具，希望别人能直接拿去改（甚至整段抄进自己的项目），
+  MIT 是最短、最不需要解释、兼容性最好的选择（对比：GPL 会传染、Apache-2.0 多了专利与 NOTICE 负担）。
+  版权行写 `Copyright (c) 2026 rusheng-world`（用 GitHub 账号名，和仓库/Pages 地址一致）。
+- **README 显著位置注明「本项目由 `deepseek-v4.1-flash` 生成」**：包括首页信息表、正文引用块、
+  设置页「关于」，以及 `package.json` 的 description。生成方式属于使用者需要知道的事实（影响信任与维护预期），
+  藏在角落没有意义。
+- 提交 `package.json` 时保留 `"private": true`：它的唯一作用是防止误 `npm publish`，
+  和「是否开源」无关，留着更安全。
+
+### D29. 发布走 GitHub Actions + Pages 的 workflow 模式（本轮）
+
+- 选 `build_type=workflow`（Actions 构建后上传 artifact），而不是「把 `dist/` 推到 `gh-pages` 分支」：
+  构建过程留在 CI 里、可复现（Node/pnpm 版本固定），仓库里也不必存构建产物。
+- 用 `gh api -X POST repos/<owner>/<repo>/pages -f build_type=workflow` 先把 Pages 打开，
+  再让 `actions/configure-pages@v5` 接手 —— 顺序反了的话第一次运行会在 configure-pages 这步失败。
+- `vite.config.ts` 的 `base: './'` 不需要改成 `/nonogram-online/`：产物用相对路径引用资源，
+  子路径（`https://<user>.github.io/<repo>/`）与根路径都能跑，换托管平台也不用改代码。
+- 部署链路：`git push origin main` → `.github/workflows/deploy.yml` → 构建 `dist/` → 发布。
+  实测一次运行约 35 秒。
+
+### D30. 本机推不上 github.com 时的兜底：走 `ssh.github.com:443`（本轮踩到的真实环境问题）
+
+- 现象：`git push` 走 HTTPS 时报 `Recv failure: Connection was reset`；但 `gh`（走 `api.github.com`）
+  一切正常。实测 `github.com:443` 连不通、`ssh.github.com:443` 与 `api.github.com:443` 通。
+- 处理：在 `~/.ssh/config` 写一个 `Host github.com` 段落（`HostName ssh.github.com` / `Port 443` /
+  `User git` / `IdentityFile ~/.ssh/id_ed25519`），并把 remote 换成 `git@github.com:...`。
+  本机已存在的 ed25519 key 直接可用（`ssh -T git@github.com` 返回 `Hi rusheng-world!`）。
+- 这属于**本机网络环境**的限制，与项目代码无关；换网络/加代理后 HTTPS 也能用。
+  写进文档是因为下一个人（或下一次部署）大概率会撞到同一堵墙。
+
+### D31. 用 `.gitattributes` 固定 `.bat` / `.cmd` 为 CRLF（本轮）
+
+- `start.bat` 里用了 `goto` + 标签，文件被检出成 LF 时 cmd 解析会错位（脚本开头注释里已经写了这条经验）。
+- 仓库里统一存 LF（`* text=auto`），只在检出时对 `.bat` / `.cmd` 用 `eol=crlf`；
+  二进制（png/ico/woff 等）标记为 `binary` 不做任何转换。
+- 这样 Windows 用户 clone 下来双击脚本仍然正常，macOS / Linux 用户的源码也不会被塞满 CRLF。
+
+### D32. 本轮代码复核发现并修掉的三个真实问题（本轮）
+
+1. **「重新开始本题」没有清本地存档**（`gameStore.restart()`）：重开后如果**先刷新一次页面**，
+   `loadProgress()` 会把重开前的棋盘恢复回来 —— 玩家会以为「重开没生效」。
+   修法：`restart()` 里先 `clearProgress()` 再 `startPuzzle(puzzle, judgeMode, null)`。
+2. **编辑器的矩形 / 直线工具，起点那一格不遵守对称设置**（`EditorPage.onPointerDown`）：
+   起点直接调 `stageCell` 绕过了 `withSymmetry`，所以「四向对称 + 点一下不拖动」只画 1 格，
+   而拖动时是 4 格。修法：起点改走 `paintPath(drag, index, index, true)`，与拖动路径同一条逻辑。
+3. **两处 `void xxx` 掩盖的无用解构**（`applyStroke` 里的 `started`、`markWin` 里的 `penaltyMs`）：
+   变量根本没用上，只是为了让 lint 闭嘴，已直接删除解构项。
+
+复核方法：全文件通读 `src/**`（core / store / components / pages / hooks 一遍）、
+静态扫描 `dangerouslySetInnerHTML|innerHTML|eval(|new Function|: any|as any|@ts-ignore|console.log|TODO|FIXME`
+（**0 命中**）、`tsc -b`（strict）零报错、70 个用例全绿、线上站点实操（下一节 R6）。
+
+### D33. CI 里 pnpm 版本只能指定一次，且 pnpm 11 要求 Node ≥ 22.13（本轮）
+
+- 第一次 Actions 运行直接失败：`Error: Multiple versions of pnpm specified` —— 工作流写了
+  `pnpm/action-setup@v4 with: version: 9`，而 `package.json` 里有 `packageManager: pnpm@11.19.0`，
+  新版 action-setup 认为这是冲突并直接报错。
+- 修法：**工作流里不写 version**，让 action 自己去读 `packageManager`（单一事实来源）。
+  已确认 `pnpm@11.19.0` 在公共 registry 上存在，且 `lockfileVersion: '9.0'` 是 pnpm 9/10/11 通用格式，
+  `--frozen-lockfile` 可以正常通过。
+- 同时 `node-version: 20 → 22`：`pnpm@11.19.0` 的 `engines.node` 是 `>=22.13`，Node 20 上装不了。
+
 ---
 ## 二、分阶段实现说明
 
@@ -402,6 +471,22 @@
 | C. 设置开关 | `settingsStore` 新增 `strikeClues`（默认 true）+ 设置页「外观」卡片里的 Toggle + `GameBoard` 关掉时直接不计算进度 | 浏览器实测：设置里关闭后回到对局，格子上的黑格仍在但**一条划线都没有**；重新打开后划线按原状态恢复 | 无 |
 | D. 生成器去退化线 | `countDegenerateLines` 指标 + `reduceDegenerateLines` 修补 + 接进 `repairToUnique` 的「修形 ⇒ 消退化 ⇒ 再验唯一」闭环 + 达标候选「最多多找 250 ms 的更干净版本」+ 兜底图案改成行线索天然唯一的构造（见 D27） | 四档各 30 题采样：退化线从 54 / 42 / 2 / 31 条降到 0 / 1 / 0 / 0 条；`accept-*` 种子四档各 20 题全部 0 条；新增验收断言 | 简单 / 中等仍允许 1 条（小盘面天然多，也算给新手的提示）；极端兜底路径理论上仍可能含退化线（几乎不会触发） |
 | E. 回归 | 全量测试 + 构建 + 交互回归 | `pnpm test` 70/70（新增 19 条）；`pnpm run build` 通过；浏览器实测：涂对划线 / 涂错不划线 / 涂错后本行划线消失 / 改正后恢复 / 列涂满划线 / 逐条线索只划对应那条 / 开关生效 / 375px 无横向滚动 | 无 |
+
+### 第五轮（本轮）改动
+
+需求：① 补充完善 README 并注明「本项目由 deepseek-v4.1-flash 生成」；② 检查优化代码、确保没有低水平 bug；
+③ 上传到 GitHub 仓库并做好本地 / 云端版本管理；④ 开源协议选 MIT；⑤ 项目名为 Nonogram Online；
+⑥ 开启 GitHub Pages 并给出可正常游玩的 github.io 链接。
+
+| 阶段 | 做了什么 | 怎么验证 | 遗留问题 |
+| --- | --- | --- | --- |
+| A. 品牌与许可 | 项目名统一为 **Nonogram Online**（中文别名数织工坊）；`package.json` 改名 + 加 `license: MIT` / `homepage`；`index.html` 标题与描述；首页头部、设置页「关于」、三个 `.bat` 的标题与横幅；新增 `LICENSE`（MIT，`Copyright (c) 2026 rusheng-world`） | `rg "数织工坊|Nonogram Studio"` 逐条确认只剩「别名」用法；构建后线上 `<title>` 实测为 `Nonogram Online · 数织工坊`；README 顶部徽章 + 信息表 + 许可章节 + LICENSE 全文 | 无 |
+| B. 文档 | README 顶部加徽章、在线试玩链接、项目信息表与「由 deepseek-v4.1-flash 生成」说明；新增「十一、开源协议（MIT）」「十二、如何参与 / 联系」；2.1 节补上本仓库的真实 Pages 地址、Actions 部署步骤与 `gh api` 快捷命令；同步修正内嵌 workflow 片段 | 通读全文；`rg` 确认无残留旧名；README 里的命令逐条对照仓库实际配置 | 无 |
+| C. 代码复核 | 通读 `src/**`；静态扫描危险 API / `any` / `console.log` / TODO（0 命中）；`tsc -b`（strict）通过；修掉 3 个真实问题（见 D32） | 每改一处跑 `pnpm test` + `pnpm run build`；最终 70/70 全绿、构建通过（73 modules，JS 241.85 kB / gzip 81.37 kB，CSS 27.14 kB） | 无 |
+| D. 本地版本管理 | `git init -b main`（用 `rusheng-world` + GitHub noreply 邮箱作为提交身份）；`.gitattributes` 固定 `.bat` 为 CRLF（D31）；两次有意义的提交：`feat: Nonogram Online v1.0.0 …`（61 个文件）→ `fix(ci): 修复 GitHub Pages 工作流的 pnpm 版本冲突` | `git log --oneline` 两条；`git diff --cached --name-only` 确认 60 个文件里没有 `node_modules/` / `dist/` / `work/`；提交信息中文未乱码 | 无 |
+| E. 推送到 GitHub | `gh repo create nonogram-online --public`；HTTPS 被网络重置 → 改走 `ssh.github.com:443`（D30）后推送成功 | `gh api …/git/trees/main?recursive=1` 确认远端有 `.github/workflows/deploy.yml`、`LICENSE`、`src/` 等；`git push` 输出 `main -> main` | 无 |
+| F. 开启 Pages | `gh api -X POST …/pages -f build_type=workflow`；修复 workflow 的 pnpm 版本冲突（D33）后重新推送触发部署 | 第一次运行 `failure`（Multiple versions of pnpm specified）→ 修复后第二次运行 **success**（35 秒）；`gh api …/pages --jq .html_url` = `https://rusheng-world.github.io/nonogram-online/` | 无 |
+| G. 线上验收 | 用 Codex 内置浏览器打开线上地址，实际玩一局 | 见下节 R6：首页 / 路由 / 棋盘 / 涂格 / 标记 / 撤销 / 提示 / 完成弹窗 / 划线 / 计时全部实测通过 | 内置浏览器本次无法投递鼠标事件，鼠标与触摸的回归只能在本地开发服务器上验证（代码与线上同一份构建产物） |
 
 ## 三、验收标准逐条自测
 
@@ -480,6 +565,24 @@
 
 1. 列线索划线读错格子 —— 「找对了不划掉」；
 2. 划线判定不看解、只看「能不能摆下」—— 「涂错也划掉」。
+
+### 第五轮（本轮）需求的验收
+
+环境：Windows 11 · Node 24.19.0 · pnpm 11.25.0 · Git 2.55.0 · gh CLI（账号 `rusheng-world`）
+命令：`pnpm test`、`pnpm run build`、`git` / `gh` 系列；线上站点用 Codex 内置浏览器（iab）实操。
+
+| # | 本轮需求 | 结果 | 证据 |
+| --- | --- | --- | --- |
+| R1 | 补充完善 README，并注明本项目由 deepseek-v4.1-flash 生成 | 通过 | README 新增「项目信息」表（含「生成方式：**本项目由 `deepseek-v4.1-flash` 生成**」）、顶部引用块署名、`LICENSE` 章节、参与/联系章节、真实 Pages 地址与 Actions 部署步骤；`package.json` description、`index.html` description、设置页「关于」也都写明了生成模型 |
+| R2 | 检查并优化代码，确保没有低水平 bug | 通过 | 修掉 3 个真实问题（D32）：重开未清存档、矩形/直线起点不遵守对称、两处 `void` 掩盖的无用解构。静态扫描危险 API / `any` / `console.log` / TODO **0 命中**；`tsc -b`（strict）零报错；`pnpm test` **70/70**；`pnpm run build` 通过（73 modules，JS 241.85 kB / gzip 81.37 kB，CSS 27.14 kB） |
+| R3 | 上传到我的 GitHub 仓库，并做好本地与云端版本管理 | 通过 | 仓库 <https://github.com/rusheng-world/nonogram-online>（public）。本地：两个提交（`a71264d` 全量 + `e244249` CI 修复），提交身份 `rusheng-world <186068141+rusheng-world@users.noreply.github.com>`；`.gitattributes` 固定换行；`node_modules/`、`dist/`、`work/` 未入库。云端：`main` 已推送，远端含源码、测试、工作流与文档 |
+| R4 | 开源协议选 MIT，补充 MIT License | 通过 | 新增 [`LICENSE`](./LICENSE)：`MIT License / Copyright (c) 2026 rusheng-world` + 标准条款全文；`package.json` 增加 `"license": "MIT"`；README 有「开源协议（MIT）」章节（全文 + 通俗解释）；仓库首页会显示 MIT 徽章 |
+| R5 | 项目名称为 Nonogram Online | 通过 | `package.json` 的 `name` = `nonogram-online`、仓库名 `nonogram-online`、`<title>` = `Nonogram Online · 数织工坊`（线上实测）、首页头部 `Nonogram Online` / 副标题「数织工坊 · 纯前端 · MIT 开源」、设置页与三个 `.bat` 同步；旧名 `Nonogram Studio` / `数织工坊` 仅作为中文别名保留 |
+| R6 | 开启 GitHub Pages，给出可正常游玩的 github.io 链接 | 通过 | <https://rusheng-world.github.io/nonogram-online/>：Pages 为 `build_type=workflow` + `https_enforced`；部署运行 `36228306506` **success**（35 s）。HTTP 实测：首页 **200**（`<title>` 正确、资源引用为 `./assets/...` 相对路径）、JS **200**（240.7 KB）、CSS **200**（26.5 KB）、favicon **200**。浏览器实操：首页四档难度卡片与每日一题正常 → 直接开 `#/play?p=easy-5x5-livecheck1`，5×5 棋盘与线索渲染正确（已填 0/14）→ 空格涂格（已填 1/14，首格 `data-state="filled"`）→ 方向键移动再涂（2/14）→ `X` 标记（该格变 `marked`）→ `Ctrl+Z` 撤销（恢复 `filled`）→ `P` 暂停（遮罩 + 「已暂停 · 用时 00:00」出现，再按恢复）→ 连按 `H` 提示直至解出：**13/13 条线索全部 `data-done="1"`（自动划线生效）**、棋盘 `已填 11/11`、弹出「完成！🎉」成绩弹窗（用时 06:10 / 错误 0 / 提示 24 / 难度 简单 5×5）并提示「刷新了本题最佳成绩！」；计时器从第一次操作开始走（00:06 → 06:10） |
+
+> R6 的说明：本次内置浏览器会话里**键盘输入可用、鼠标事件无法投递**（同一个页面上点设置里的开关也不生效），
+> 因此鼠标 / 触摸的回归用本地开发服务器验证（`pnpm dev`，代码与线上是同一份源码与同一份构建产物），
+> 线上用键盘把一局完整打完，覆盖了同一套 `applyStroke / undo / useHint / markWin` 路径。
 
 ## 四、已知限制（与 README 一致）
 
