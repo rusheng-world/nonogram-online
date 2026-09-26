@@ -1,11 +1,11 @@
 {
   "name": "nonogram-online",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "license": "MIT",
   "homepage": "https://rusheng-world.github.io/nonogram-online/",
-  "description": "Nonogram Online（数织工坊）· 纯前端在线数织（Nonogram / Picross）游戏：自动生成谜题、算法难度分级、自定义编辑器、成绩存档。本项目由 deepseek-v4.1-flash 生成。",
+  "description": "Nonogram Online（数织工坊）· 在线数织（Nonogram / Picross）游戏：自动生成谜题、算法难度分级、自定义编辑器、成绩存档。本项目由 deepseek-v4.1-flash 生成。",
   "scripts": {
     "dev": "vite",
     "share": "pnpm run build && vite preview --port 5173 --strictPort",

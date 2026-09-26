@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   IconCalendar,
+  IconGithub,
   IconPencil,
   IconPlay,
   IconRefresh,
@@ -22,6 +23,7 @@ import {
 import { DIFFICULTIES, DIFFICULTY_META, type Difficulty } from '../core/types'
 import { createNewGame } from '../game/newGame'
 import { formatDuration } from '../hooks/useElapsed'
+import { REPO_URL, SITE_URL } from '../project'
 import { navigate } from '../router'
 import { useGameStore } from '../store/gameStore'
 import { applyTheme, useSettingsStore } from '../store/settingsStore'
@@ -134,7 +136,7 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
           <span className="grid h-8 w-8 place-items-center rounded-xl bg-indigo-600 text-sm font-bold text-white">数</span>
           <div className="leading-tight">
             <h1 className="text-sm font-semibold text-ink-900 dark:text-white">Nonogram Online</h1>
-            <p className="text-[11px] text-ink-500 dark:text-ink-400">数织工坊 · 纯前端 · MIT 开源</p>
+            <p className="text-[11px] text-ink-500 dark:text-ink-400">数织工坊 · 在线数织游戏</p>
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
@@ -149,6 +151,17 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
             <IconSettings />
             <span className="hidden sm:inline">设置</span>
           </Button>
+          <a
+            href={REPO_URL}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="项目仓库（GitHub）"
+            title={`项目仓库：${REPO_URL}`}
+            className="inline-flex select-none items-center justify-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-ink-100 dark:text-ink-200 dark:hover:bg-ink-800"
+          >
+            <IconGithub />
+            <span className="hidden sm:inline">GitHub</span>
+          </a>
         </div>
       </header>
 
@@ -295,9 +308,32 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
           </Card>
         </section>
 
-        <footer className="pb-6 text-[11px] leading-relaxed text-ink-400">
-          操作：点击涂黑 / 右键（或长按）标记 X / 拖拽连续涂 / 方向键移动光标、空格涂黑、X 标记、Delete 清除、Ctrl+Z 撤销。
-          进度与成绩保存在浏览器本地，关闭页面后可以继续。
+        <footer className="space-y-1 pb-6 text-[11px] leading-relaxed text-ink-400">
+          <p>
+            操作：点击涂黑 / 右键（或长按）标记 X / 拖拽连续涂 / 方向键移动光标、空格涂黑、X 标记、Delete 清除、Ctrl+Z 撤销。
+            进度与成绩保存在浏览器本地，关闭页面后可以继续。
+          </p>
+          <p>
+            项目仓库：
+            <a
+              className="underline underline-offset-2 hover:text-ink-600 dark:hover:text-ink-200"
+              href={REPO_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {REPO_URL}
+            </a>
+            <span className="mx-1.5">·</span>
+            在线试玩：
+            <a
+              className="underline underline-offset-2 hover:text-ink-600 dark:hover:text-ink-200"
+              href={SITE_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {SITE_URL}
+            </a>
+          </p>
         </footer>
       </main>
 

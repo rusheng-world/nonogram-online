@@ -112,9 +112,16 @@ export function Toggle({
           checked ? 'bg-indigo-600 dark:bg-indigo-500' : 'bg-ink-300 dark:bg-ink-700'
         }`}
       >
+        {/*
+         * 圆钮必须显式定位（left-0.5）。button 默认 text-align: center，
+         * 只写 absolute 会让它按「静态位置」摆放 —— 也就是居中，
+         * 于是圆钮整体右移约 11px，打开时还会溢出 44px 宽的轨道（这就是错位的根因）。
+         * 轨道 44px、圆钮 20px，两侧各留 2px：关闭 translate-x-0（左侧），
+         * 打开 translate-x-5（20px，贴右侧）。
+         */}
         <span
-          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-            checked ? 'translate-x-[22px]' : 'translate-x-0.5'
+          className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+            checked ? 'translate-x-5' : 'translate-x-0'
           }`}
         />
       </button>

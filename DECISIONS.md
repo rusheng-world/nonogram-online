@@ -1,6 +1,6 @@
 # 决策记录 + 验收标准逐条自测
 
-项目：**Nonogram Online**（中文别名：数织工坊）· 纯前端在线数织 · MIT 开源
+项目：**Nonogram Online**（中文别名：数织工坊）· 在线数织游戏
 仓库：<https://github.com/rusheng-world/nonogram-online> ｜ 在线试玩：<https://rusheng-world.github.io/nonogram-online/>
 技术栈：Vite 5 + React 18 + TypeScript（strict）+ Tailwind CSS 3 + Zustand 4
 测试：Vitest 2（7 个文件 / 70 个用例）
@@ -368,6 +368,9 @@
 - 提交 `package.json` 时保留 `"private": true`：它的唯一作用是防止误 `npm publish`，
   和「是否开源」无关，留着更安全。
 
+> 后续修订（第六轮）：协议本身不变，但**不再把 MIT 当作对外宣传点** —— README 的协议章节与徽章、
+> 界面上的「MIT 开源」字样全部移除，只在仓库里保留 `LICENSE` 与 `package.json` 的 `license` 字段。详见 D36。
+
 ### D29. 发布走 GitHub Actions + Pages 的 workflow 模式（本轮）
 
 - 选 `build_type=workflow`（Actions 构建后上传 artifact），而不是「把 `dist/` 推到 `gh-pages` 分支」：
@@ -420,6 +423,36 @@
   已确认 `pnpm@11.19.0` 在公共 registry 上存在，且 `lockfileVersion: '9.0'` 是 pnpm 9/10/11 通用格式，
   `--frozen-lockfile` 可以正常通过。
 - 同时 `node-version: 20 → 22`：`pnpm@11.19.0` 的 `engines.node` 是 `>=22.13`，Node 20 上装不了。
+
+### D34. 设置页开关的白色圆钮错位：根因是 `button` 的默认文本居中（本轮修的真实 bug）
+
+- 现象：设置页所有开关（网格辅助线、线索自动划线、显示计时器、音效、提示罚时、自动暂停）的白色圆钮
+  整体偏右，打开状态直接顶出 44px 宽的轨道。
+- 根因：`Toggle` 用的是 `<button>`，浏览器默认 `text-align: center`。圆钮只写了 `absolute` 而**没写 `left`**，
+  于是它按「静态位置」被居中摆放，再叠加 `translate-x` 的位移。
+- 修法：圆钮补 `left-0.5`（4px 内边距），开/关位移改成 `translate-x-5`（20px，贴右）/ `translate-x-0`（贴左）。
+  轨道 44px、圆钮 20px、两侧各留 2px，几何上闭合。
+- 验证：内置浏览器读到轨道 `44×24`、圆钮 `(x=22, y=2, 20×20)`，右边缘 42 ≤ 44，无溢出。
+
+### D35. 版本号规则写进代码，并升到 1.0.1（本轮）
+
+- 规则：`主.次.修订` —— **修订号（第三位）只用于修 bug**（`1.0.1 → 1.0.2`）；**次版本（第二位）用于实质性功能增加**（`1.0.1 → 1.1.0`）。
+- 落地：新增 `src/project.ts` 作为版本 / 仓库 / 站点地址的**唯一来源**（`APP_VERSION = '1.0.1'`）。
+  在此之前设置页里写死了一个局部常量 `APP_VERSION = '1.0.0'`，与 `package.json` 各说各话，已删除。
+- 本轮属于「修 bug + 文案与文档调整」，按规则只动第三位：`1.0.0 → 1.0.1`。
+
+### D36. 文档与品牌收敛：去掉 MIT 宣传、中文定位改为「在线数织游戏」、README 只讲当前状态（本轮）
+
+- **中文定位**：对外中文描述统一为「**在线数织游戏**」。原「纯前端数织游戏」既啰嗦又容易被误解成技术参数，
+  而且主标题里已经说了「打开网页就能玩」，不需要再强调一次。改到 `README` / `package.json` / `index.html` /
+  首页副标题 / 设置页「关于」共 5 处。
+- **去掉 MIT 宣传**：仓库里保留 `LICENSE` 与 `package.json` 的 `license: MIT`（GitHub 上照常显示协议），
+  但**不再把 MIT 当成卖点**：删掉 README 的协议章节与徽章、首页副标题的「MIT 开源」、设置页的「开源协议 MIT」、
+  `index.html` description 里的「MIT 开源」。
+- **README 只保留当前所需内容**：删除「本轮 / 第三轮……第五轮」之类的修改史叙述，只描述项目**现在**是什么、
+  怎么跑、怎么部署、算法怎么工作。修改过程与踩坑记录统一收在本文件（DECISIONS.md）里。
+- **文档单一来源**：删掉 `outputs/README.md`、`outputs/DECISIONS.md` 两份陈旧副本（内容与主线重复，
+  且仍含「纯前端」「MIT 开源」等已废弃表述），仓库里只保留根目录的一份。
 
 ---
 ## 二、分阶段实现说明
@@ -487,6 +520,21 @@
 | E. 推送到 GitHub | `gh repo create nonogram-online --public`；HTTPS 被网络重置 → 改走 `ssh.github.com:443`（D30）后推送成功 | `gh api …/git/trees/main?recursive=1` 确认远端有 `.github/workflows/deploy.yml`、`LICENSE`、`src/` 等；`git push` 输出 `main -> main` | 无 |
 | F. 开启 Pages | `gh api -X POST …/pages -f build_type=workflow`；修复 workflow 的 pnpm 版本冲突（D33）后重新推送触发部署 | 第一次运行 `failure`（Multiple versions of pnpm specified）→ 修复后第二次运行 **success**（35 秒）；`gh api …/pages --jq .html_url` = `https://rusheng-world.github.io/nonogram-online/` | 无 |
 | G. 线上验收 | 用 Codex 内置浏览器打开线上地址，实际玩一局 | 见下节 R6：首页 / 路由 / 棋盘 / 涂格 / 标记 / 撤销 / 提示 / 完成弹窗 / 划线 / 计时全部实测通过 | 内置浏览器本次无法投递鼠标事件，鼠标与触摸的回归只能在本地开发服务器上验证（代码与线上同一份构建产物） |
+
+### 第六轮（本轮）改动
+
+需求：① 主页与设置页加上项目仓库地址；② README 只保留当前项目所需内容；③ 中文描述改为「在线数织游戏」；
+④ 清除所有 MIT 描述；⑤ 修复设置页开关白色圆钮错位；⑥ 版本升到 1.0.1 并确立版本号规则。
+
+| 阶段 | 做了什么 | 怎么验证 | 遗留问题 |
+| --- | --- | --- | --- |
+| A. 元信息单一来源 | 新增 `src/project.ts`（`APP_VERSION` / `REPO_URL` / `SITE_URL`）；设置页删掉写死的 `1.0.0`；`package.json` 升到 `1.0.1`、description 去掉「纯前端」 | `rg "APP_VERSION"` 确认只有 `src/project.ts` 一处定义；`tsc -b`（strict）零报错 | 无 |
+| B. 仓库地址入口 | `src/components/icons.tsx` 新增 `IconGithub`；首页头部加 GitHub 图标按钮、footer 加「项目仓库 / 在线试玩」链接；设置页「关于」卡片加可点的仓库地址、在线地址与生成模型署名 | 构建后本地起服务，读取两页 DOM 确认 `href` 与文案存在；线上待复核（见下节） | 无 |
+| C. 开关错位 | 修 `Toggle` 的白钮定位（D34） | 浏览器读几何：轨道 `44×24`、白钮 `x=22 20×20`，右边缘 42 ≤ 44 | 无 |
+| D. 文案与许可 | 中文定位统一为「在线数织游戏」；删掉 README 协议章节与徽章、首页副标题「MIT 开源」、设置页协议行、`index.html` 的 MIT 描述；`LICENSE` 与 `package.json` 的 `license` 保留 | `rg -i "mit|纯前端"` 全仓库扫描，只命中 `LICENSE` 正文与 `package.json` 的 `license` 字段（符合预期） | 无 |
+| E. README 重写 | 重写为 10 个章节（635 行）：在线试玩 + 项目信息表 + 版本规则 + 本地运行 + 分享与部署 + 功能一览 + 技术选型 + 目录结构 + 核心算法 + 测试 + 已知限制；删掉全部修改史 | 通读全文；`rg "本轮|第三轮|第四轮|第五轮"` 确认只剩算法语境（如「本轮确定的格子数」） | 无 |
+| F. 文档清理 | `git rm` 掉 `outputs/README.md`、`outputs/DECISIONS.md` 两份陈旧副本 | `git ls-files outputs` 返回空 | 无 |
+| G. 发布 1.0.1 | 提交 + `git tag -a v1.0.1` + 推送；改仓库描述；发 GitHub Release | `gh run list` 看部署结论；线上打开首页与 `#/settings` 复核文案与链接 | 无 |
 
 ## 三、验收标准逐条自测
 
@@ -583,6 +631,21 @@
 > R6 的说明：本次内置浏览器会话里**键盘输入可用、鼠标事件无法投递**（同一个页面上点设置里的开关也不生效），
 > 因此鼠标 / 触摸的回归用本地开发服务器验证（`pnpm dev`，代码与线上是同一份源码与同一份构建产物），
 > 线上用键盘把一局完整打完，覆盖了同一套 `applyStroke / undo / useHint / markWin` 路径。
+
+### 第六轮（本轮）需求的验收
+
+环境：Windows 11 · Node 24.19.0 · pnpm 11.19.0 · Git · gh CLI（账号 `rusheng-world`）；
+界面用 Codex 内置浏览器（iab）核对。
+命令：`pnpm test`、`pnpm run build`、`git` / `gh` 系列。
+
+| # | 本轮需求 | 结果 | 证据 |
+| --- | --- | --- | --- |
+| R1 | 主页与设置页加上项目仓库地址 | 通过 | 首页头部 GitHub 图标按钮 + footer「项目仓库 / 在线试玩」两个链接；设置页「关于」卡片两组可点链接，均指向 `https://github.com/rusheng-world/nonogram-online` 与线上地址 |
+| R2 | README 只保留当前所需内容，不保留修改途中内容 | 通过 | README 重写为 10 章（635 行）；`rg "本轮|第[三四五]轮"` 仅命中算法语境（「本轮确定的格子数」）；删掉 `outputs/` 两份陈旧副本 |
+| R3 | 中文描述改为「在线数织游戏」 | 通过 | `rg "纯前端"` **0 命中**；README / `package.json` / `index.html` / 首页副标题 / 设置页均已改为「在线数织游戏」 |
+| R4 | 清除所有 MIT 描述（不拿协议宣传） | 通过 | README 无协议章节与徽章、首页副标题无「MIT 开源」、设置页无协议行、`index.html` description 无 MIT；`LICENSE` 文件与 `package.json` 的 `license: MIT` 保留（GitHub 上照常显示） |
+| R5 | 修复设置页开关白色圆钮错位 | 通过 | 根因 = `button` 默认居中导致 `absolute` 白钮未定位（D34）。修后实测轨道 `44×24`、白钮 `x=22 / y=2 / 20×20`，右边缘 42 ≤ 44，开/关两态均在轨道内 |
+| R6 | 版本改为 1.0.1 并确立版本号规则 | 通过 | `src/project.ts` 的 `APP_VERSION = '1.0.1'`、`package.json` 的 `version = 1.0.1`、设置页读取同一常量；规则「第三位修 bug / 第二位加功能」写进 `src/project.ts` 注释、README 与 D35 |
 
 ## 四、已知限制（与 README 一致）
 

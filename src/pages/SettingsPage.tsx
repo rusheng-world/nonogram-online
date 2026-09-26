@@ -6,8 +6,7 @@ import type { JudgeMode, ThemeMode } from '../core/types'
 import { navigate } from '../router'
 import { HINT_PENALTY_MS } from '../store/gameStore'
 import { applyTheme, useSettingsStore, type PaintMode } from '../store/settingsStore'
-
-const APP_VERSION = '1.0.0'
+import { APP_VERSION, REPO_URL, SITE_URL } from '../project'
 
 const JUDGE_OPTIONS: { value: JudgeMode; label: string; hint: string }[] = [
   { value: 'lenient', label: '宽松', hint: '不实时提示，点“检查”或完成时校验' },
@@ -201,16 +200,39 @@ export function SettingsPage(): JSX.Element {
         <Card className="space-y-2">
           <h2 className="text-sm font-semibold text-ink-900 dark:text-white">关于</h2>
           <p className="text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
-            Nonogram Online（数织工坊）v{APP_VERSION} · 纯前端实现，无后端、无账号、无网络请求。
+            Nonogram Online（数织工坊）v{APP_VERSION} · 在线数织游戏，打开网页就能玩，
+            无需安装、无需注册；没有后端，全部逻辑都在浏览器里跑。
             谜题由「随机团块生长 + 对称镜像 + 噪声」生成图案，再用 DP 线索传播求解器验证唯一解，
             并按解出该题所需的回溯次数与假设链深度评定难度。
           </p>
           <p className="text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
             快捷键：方向键移动光标，空格涂黑，X 标记，Delete 清除，Ctrl+Z / Ctrl+Shift+Z 撤销重做，H 提示，P 暂停。
           </p>
-          <p className="text-[11px] leading-relaxed text-ink-400">
-            开源协议 MIT · 本项目由 deepseek-v4.1-flash 生成。
-          </p>
+          <div className="space-y-1 pt-1 text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
+            <p>
+              项目仓库：
+              <a
+                className="underline underline-offset-2 hover:text-ink-700 dark:hover:text-ink-200"
+                href={REPO_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {REPO_URL}
+              </a>
+            </p>
+            <p>
+              在线试玩：
+              <a
+                className="underline underline-offset-2 hover:text-ink-700 dark:hover:text-ink-200"
+                href={SITE_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {SITE_URL}
+              </a>
+            </p>
+            <p className="text-ink-400">本项目由 deepseek-v4.1-flash 生成。</p>
+          </div>
         </Card>
       </main>
 
