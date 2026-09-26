@@ -23,10 +23,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # pnpm 11 要求 Node >= 22.13，因此不能用 Node 20
+          node-version: 22
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
+        # 不写 version：让 action 读取 package.json 里的 packageManager，
+        # 避免「workflow 里写 9、package.json 里写 11」导致的
+        # "Multiple versions of pnpm specified" 报错（已实测踩过）。
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - uses: actions/configure-pages@v5
