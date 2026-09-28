@@ -23,6 +23,11 @@ jobs:
         # 不写 version：读取 package.json 的 packageManager，避免版本冲突
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Dependency audit (production only)
+        # 只对**生产依赖**设门禁：devDependencies 的 advisory 不会进产物，
+        # 把它们也算进红线只会让这个检查天天变红、最后被忽略（见审查报告 L-11 / L-12）。
+        # dev 依赖的更新交给 Dependabot 开 PR，而不是卡住 CI。
+        run: pnpm audit --prod
       - name: Lint
         run: pnpm lint
       - name: Format check

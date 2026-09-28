@@ -180,7 +180,7 @@ pnpm -v
 | --- | --- |
 | `start.bat` | 检查 Node.js → 首次自动装依赖 → 检查 5173 端口占用（被占用可一键结束占用进程）→ 启动开发服务器并自动打开浏览器 |
 | `build.bat` | 检查环境 → 生产构建到 `dist/` → 本地预览并打开浏览器 |
-| `share.bat` | 生产构建后用静态服务器挂在 5173 端口，适合配合内网穿透（frp / nps / ngrok）分享给别人玩 |
+| `share.bat` | 生产构建后用静态服务器挂在 5173 端口，适合**临时**配合内网穿透（frp / nps / ngrok）分享给别人玩；会打印安全警告，且需要显式选择对外监听 |
 
 直接双击即可，不需要敲任何命令。
 
@@ -198,7 +198,7 @@ npm run dev          # 开发服务器，默认 http://localhost:5173
 | `pnpm dev` | 启动开发服务器（热更新） |
 | `pnpm build` | 类型检查 + 生产构建，产物在 `dist/` |
 | `pnpm preview` | 本地预览构建产物（预览端口 4173） |
-| `pnpm share` | 构建后用 5173 端口对外提供静态站点（公网分享用） |
+| `pnpm share` | 构建后用 5173 端口提供静态站点；默认只监听本机，需先 `set NONOGRAM_EXPOSE=1`（Windows）或 `NONOGRAM_EXPOSE=1 pnpm share` 才对外监听 |
 | `pnpm test` | 跑单元测试 |
 | `pnpm test:coverage` | 跑测试并输出覆盖率 |
 | `pnpm lint` / `pnpm lint:fix` | ESLint 检查 / 自动修复 |
@@ -266,7 +266,7 @@ docs/           截图
 
 ## 🧩 Core Algorithm
 
-**线索计算**：把连续填充段转成「段长列表」，全空行记为 `[]`（渲染时显示为 `0`）。`1×N`、单行全满、全空行等极端情况都有对应测试。
+**线索计算**：把连续填充段转成「段长列表」，全空行记为 `[0]`（渲染时显示为 `0`，与 `src/core/clues.ts` 的约定一致）。`1×N`、单行全满、全空行等极端情况都有对应测试。
 
 **约束传播（求解器核心，`src/core/solver.ts`）**：对每一行 / 每一列用**动态规划**计算「在满足该线索的所有排布里，第 i 格能否为黑、能否为白」，取交集得出必然确定的格子——而不是枚举所有排列（25 长度的排布数会爆炸）。反复迭代行 / 列传播直到不再产生新确定格。
 
@@ -299,15 +299,25 @@ docs/           截图
 - **输出目录**：`dist`
 - 三者都能直接识别 Vite 项目；因为是 hash 路由（`#/...`），不需要额外配置 SPA 重写规则。
 
-### 自己动手做静态预览 / 公网分享
+### 自己动手做静态预览 / 临时分享
 
 ```bash
-pnpm build            # 生成 dist/
-pnpm preview          # 本地静态预览（4173）
-pnpm share            # 用 5173 端口对外提供，便于配合 frp / nps / ngrok 内网穿透
+pnpm build                                        # 生成 dist/
+pnpm preview                                      # 本地静态预览（4173）
+NONOGRAM_EXPOSE=1 pnpm share                      # 对外监听 5173（Windows: set NONOGRAM_EXPOSE=1）
+NONOGRAM_EXPOSE=1 NONOGRAM_ALLOWED_HOSTS=game.example.com pnpm share   # 额外放行自己的域名
 ```
 
-`share.bat` 就是 `pnpm share` 的一键版本：双击即可，适合把游戏临时分享给朋友。
+`share.bat` 就是上面第三条命令的一键版本：双击即可，适合把游戏**临时**分享给朋友。
+
+> [!WARNING]
+> **请把开发 / 预览服务器当成「本机工具」，不要当成生产服务器。**
+> `pnpm dev` 跑的是 Vite 开发服务器：它能读取项目源码，而且当前版本存在若干 dev/preview-only
+> 的安全公告（`server.fs.deny` 绕过、`launch-editor` 参数注入等）。因此本项目默认**只监听本机**
+> （`localhost`），并且只放行 `localhost` 与本机 IP 的 Host 头 —— 想对外暴露必须显式设置
+> `NONOGRAM_EXPOSE=1`（域名还要写进 `NONOGRAM_ALLOWED_HOSTS`）。
+> 只做临时分享、用完就关；要长期对外发布，请用静态托管（GitHub Pages / Vercel / Netlify），
+> 它们跑的是 `dist/` 里的纯静态产物，不含源码、也不带上述风险。
 
 ## 📌 Known Limitations
 

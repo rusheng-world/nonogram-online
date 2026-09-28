@@ -7,7 +7,7 @@
  */
 
 /** 当前版本号 */
-export const APP_VERSION = '1.2.0'
+export const APP_VERSION = '1.2.1'
 
 /** 项目仓库地址 */
 export const REPO_URL = 'https://github.com/rusheng-world/nonogram-online'

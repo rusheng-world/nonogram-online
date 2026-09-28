@@ -67,9 +67,12 @@ export function parseTextGrid(text: string): ParseOutcome {
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) grid[y * width + x] = rows[y][x]
   }
-  if (width < 5 || width > 50 || height < 5 || height > 50) {
-    warnings.push(`尺寸 ${width}x${height} 超出范围，已自动裁剪到 5~50`)
-  }
+  /*
+   * 这里曾经有一条「尺寸超出范围，已自动裁剪到 5~50」的警告 —— 既是错文案（代码从不裁剪），
+   * 也是不可达代码：唯一的调用方 editorStore.importText 紧接着就会用
+   * MIN_EDITOR_SIZE / MAX_EDITOR_SIZE 拒绝越界尺寸，警告永远走不到界面上（L-10）。
+   * 尺寸范围校验因此只保留在 editorStore 那一处，作为唯一判定入口。
+   */
   return { ok: true, data: { width, height, grid }, warnings }
 }
 

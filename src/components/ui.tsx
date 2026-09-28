@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 type Size = 'sm' | 'md' | 'lg'
@@ -144,15 +144,99 @@ export function Modal({
   wide?: boolean
 }): JSX.Element | null {
   if (!open) return null
+  // 打开时才挂载内部组件：焦点陷阱 / 滚动锁定这些副作用（hooks）必须无条件执行，
+  // 所以把它们放进子组件，而不是写在会提前 return 的 Modal 本体里。
+  return (
+    <ModalDialog title={title} onClose={onClose} footer={footer} wide={wide}>
+      {children}
+    </ModalDialog>
+  )
+}
+
+/** 可聚焦元素选择器（焦点陷阱用） */
+const FOCUSABLE =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function ModalDialog({
+  title,
+  onClose,
+  children,
+  footer,
+  wide,
+}: {
+  title: string
+  onClose?: () => void
+  children: ReactNode
+  footer?: ReactNode
+  wide: boolean
+}): JSX.Element {
+  const panelRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
+
+  // 打开时把焦点移进弹窗并锁住背景滚动，关闭时恢复（L-08）
+  useEffect(() => {
+    const panel = panelRef.current
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    // 焦点给「面板容器」而不是第一个按钮：避免键盘用户一进来就被自动聚焦的
+    // 危险按钮（例如「确认清空」）误触，Tab 之后自然进入第一个可聚焦元素
+    panel?.focus()
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+      // 焦点还给打开弹窗的那个元素，键盘用户不会「迷路」
+      if (previouslyFocused && typeof previouslyFocused.focus === 'function') previouslyFocused.focus()
+    }
+  }, [])
+
+  // Esc 关闭 + Tab 焦点循环（基本焦点陷阱，L-08）
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (onClose) {
+          event.preventDefault()
+          onClose()
+        }
+        return
+      }
+      if (event.key !== 'Tab') return
+      const panel = panelRef.current
+      if (!panel) return
+      const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+        (el) => el.offsetParent !== null || el === document.activeElement,
+      )
+      if (items.length === 0) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      if (event.shiftKey && (active === first || active === panel)) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [onClose])
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink-950/50 p-0 backdrop-blur-sm sm:items-center sm:p-4">
       <div
-        className={`animate-fadeIn max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl ring-1 ring-ink-200 dark:bg-ink-900 dark:ring-ink-800 sm:rounded-2xl ${
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className={`animate-fadeIn max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl ring-1 ring-ink-200 outline-none dark:bg-ink-900 dark:ring-ink-800 sm:rounded-2xl ${
           wide ? 'sm:max-w-2xl' : 'sm:max-w-md'
         }`}
       >
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-ink-900 dark:text-white">{title}</h2>
+          <h2 id={titleId} className="text-base font-semibold text-ink-900 dark:text-white">
+            {title}
+          </h2>
           {onClose ? (
             <button
               type="button"

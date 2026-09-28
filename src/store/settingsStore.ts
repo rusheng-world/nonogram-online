@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { SETTINGS_KEY } from '../core/storage'
 import type { JudgeMode, ThemeMode } from '../core/types'
 
 export type PaintMode = 'fill' | 'mark'
@@ -46,14 +47,27 @@ export const useSettingsStore = create<SettingsState>()(
       set: (key, value) => set({ [key]: value } as unknown as Partial<SettingsState>),
       reset: () => set({ ...DEFAULTS }),
     }),
-    { name: 'nonogram-settings-v1' },
+    {
+      name: SETTINGS_KEY,
+      /*
+       * 设置损坏时（JSON 坏了 / 结构不对）persist 会**静默**回退到默认值：
+       * 玩家看到的是「设置莫名被重置」，而开发者拿不到任何线索（L-02）。
+       * 这里补一条 warn —— 行为不变（仍然安全回退到默认值，不会白屏），只是可观测。
+       */
+      onRehydrateStorage: () => (_state, error) => {
+        if (error) console.warn('[nonogram] 本地设置读取失败，已回退到默认设置：', error)
+      },
+    },
   ),
 )
 
 export function currentThemeIsDark(mode: ThemeMode): boolean {
   if (mode === 'dark') return true
   if (mode === 'light') return false
-  return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
+  // 老浏览器 / 测试环境可能没有 matchMedia：不能因为「跟随系统」就把页面搞崩
+  // （App.tsx 的监听侧一直有这个判断，这里此前漏了，见审查报告 M-03）
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
 }
 
 export function applyTheme(mode: ThemeMode): void {

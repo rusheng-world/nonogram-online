@@ -127,14 +127,14 @@ export function SolverPage(): JSX.Element {
   const [running, setRunning] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
   const [result, setResult] = useState<SolveResult | null>(null)
+  /** 求解器本身抛异常时的提示（正常情况下永远不会出现，见 L-07） */
+  const [solveError, setSolveError] = useState<string | null>(null)
   const [showSteps, setShowSteps] = useState(false)
-  const [history, setHistory] = useState<SolverHistoryEntry[]>([])
+  // 惰性初始化直接读一次历史（此前放在 effect 里 setState，会多走一轮渲染；
+  // 读的是同一份 localStorage，行为不变）
+  const [history, setHistory] = useState<SolverHistoryEntry[]>(() => loadSolverHistory())
   const handleRef = useRef<SolverHandle | null>(null)
   const startedAtRef = useRef(0)
-
-  useEffect(() => {
-    setHistory(loadSolverHistory())
-  }, [])
 
   // ---------------- 解析 + 校验 ----------------
   const formRows = useMemo(() => rowInputs.map(parseClueLine), [rowInputs])
@@ -171,6 +171,15 @@ export function SolverPage(): JSX.Element {
     setRunning(false)
   }, [])
 
+  // 卸载时取消正在跑的求解（L-06）：Worker 环境直接 terminate；
+  // 非 Worker 环境至少保证结果不再回填到已经卸载的组件上。
+  useEffect(() => {
+    return () => {
+      handleRef.current?.cancel()
+      handleRef.current = null
+    }
+  }, [])
+
   /**
    * 用户主动点「取消」。
    * 与上面的静默 cancel() 不同：这里**保留** handle，让 promise 回填成
@@ -184,6 +193,7 @@ export function SolverPage(): JSX.Element {
   useEffect(() => {
     cancel()
     setResult(null)
+    setSolveError(null)
     setShowSteps(false)
     // 只在输入指纹变化时重置；cancel 是稳定引用
   }, [requestKey, cancel])
@@ -208,22 +218,32 @@ export function SolverPage(): JSX.Element {
   const onSolve = () => {
     if (!canSolve) return
     setResult(null)
+    setSolveError(null)
     setShowSteps(false)
     setElapsedMs(0)
     startedAtRef.current = performance.now()
     setRunning(true)
     const handle = runSolve({ width, height, rowClues, colClues }, { timeLimitMs, maxSolutions: 10 })
     handleRef.current = handle
-    void handle.promise.then((outcome) => {
-      if (handleRef.current !== handle) return
-      handleRef.current = null
-      setRunning(false)
-      setElapsedMs(outcome.stats.elapsedMs)
-      setResult(outcome)
-      // 被取消的这次不记历史：它没有得出任何结论，记进去只会污染列表
-      if (!outcome.cancelled)
-        setHistory(pushSolverHistory({ width, height, rowClues, colClues, status: outcome.status }))
-    })
+    void handle.promise
+      .then((outcome) => {
+        if (handleRef.current !== handle) return
+        handleRef.current = null
+        setRunning(false)
+        setElapsedMs(outcome.stats.elapsedMs)
+        setResult(outcome)
+        // 被取消的这次不记历史：它没有得出任何结论，记进去只会污染列表
+        if (!outcome.cancelled)
+          setHistory(pushSolverHistory({ width, height, rowClues, colClues, status: outcome.status }))
+      })
+      .catch((error: unknown) => {
+        // 非 Worker 环境（或环境异常）下求解器抛错：如实告知，不留在「求解中…」（L-07）
+        if (handleRef.current !== handle) return
+        handleRef.current = null
+        setRunning(false)
+        setResult(null)
+        setSolveError(error instanceof Error ? error.message : String(error))
+      })
   }
 
   const loadSample = () => {
@@ -504,6 +524,12 @@ export function SolverPage(): JSX.Element {
               </>
             ) : null}
           </div>
+
+          {solveError ? (
+            <p className="text-[11px] text-rose-600 dark:text-rose-400">
+              求解器出错，没能给出结果：{solveError}。可以先调整线索或刷新页面再试。
+            </p>
+          ) : null}
         </Card>
 
         {/* ---------------- 结果 ---------------- */}

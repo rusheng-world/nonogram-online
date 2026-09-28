@@ -21,6 +21,7 @@ import {
   loadHistory,
   loadProgress,
   loadRecords,
+  storageDegraded,
   type HistoryEntry,
   type StoredProgress,
 } from '../core/storage'
@@ -59,18 +60,28 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
   const [busy, setBusy] = useState<string | null>(null)
   const [banner, setBanner] = useState<string | null>(() => params.get('error'))
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory())
-  const [saved, setSaved] = useState<StoredProgress | null>(() => loadProgress())
+  // 存档只在挂载时读一次：路由切换会重新挂载首页，不需要额外的刷新 effect
+  const [saved] = useState<StoredProgress | null>(() => loadProgress())
   const [showClear, setShowClear] = useState(false)
   const busyRef = useRef(false)
   const launchedRef = useRef(false)
+  /** launch 的延迟定时器（先画 loading 再生成），卸载时清理（L-06） */
+  const launchTimerRef = useRef<number | null>(null)
 
   // 「每档已有几个最佳成绩」独立存 state：它读的是 records（与 history 不是同一份数据）
-  const [recordCounts, setRecordCounts] = useState(() => countRecordsByDifficulty())
+  const [recordCounts] = useState(() => countRecordsByDifficulty())
   /** 教程是否已经学完一遍（只影响入口文案，不影响任何成绩） */
-  const [tutorialDone, setTutorialDone] = useState(() => hasCompletedTutorial())
+  const [tutorialDone] = useState(() => hasCompletedTutorial())
   /** 每日挑战：难度 / 种子 / 尺寸全部由 UTC 日期决定（见 core/dailyChallenge.ts） */
   const [daily, setDaily] = useState<DailyChallengeInfo>(() => getDailyChallenge())
-  const [dailyRecord, setDailyRecord] = useState<DailyRecord | null>(null)
+  const [dailyRecord, setDailyRecord] = useState<DailyRecord | null>(
+    () => loadDailyRecords()[getDailyChallenge().date] ?? null,
+  )
+  /**
+   * 存档是否真的写得进去（L-03）：隐私模式 / 配额满时 storage 层会静默退化成内存存储，
+   * 玩家以为进度已保存，刷新即丢。这里如实提示 —— 但绝不阻止他开始游戏。
+   */
+  const [canPersist] = useState(() => !storageDegraded())
   const countdown = formatCountdown(msUntilNextDaily())
 
   /**
@@ -84,7 +95,8 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
       busyRef.current = true
       setBanner(null)
       setBusy(label)
-      window.setTimeout(() => {
+      launchTimerRef.current = window.setTimeout(() => {
+        launchTimerRef.current = null
         const outcome = createNewGame(difficulty, seed)
         const puzzle = outcome.puzzle
         startPuzzle(puzzle, judgeMode)
@@ -97,6 +109,16 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
     [judgeMode, startPuzzle],
   )
 
+  // 卸载时清掉 launch 的延迟定时器（L-06）：否则离开首页后它仍会跑完整套生成并导航
+  useEffect(() => {
+    return () => {
+      if (launchTimerRef.current !== null) {
+        window.clearTimeout(launchTimerRef.current)
+        launchTimerRef.current = null
+      }
+    }
+  }, [])
+
   // 「再来一局」：GamePage 完成后跳回首页并带上 ?start=<难度>&seed=<种子>
   useEffect(() => {
     const start = params.get('start')
@@ -106,20 +128,19 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
     launch(difficulty, params.get('seed') ?? randomSeed(), `正在生成「${DIFFICULTY_META[difficulty].label}」…`)
   }, [params, launch])
 
-  // 从游戏页返回时刷新存档 / 历史 / 每日挑战记录。
-  // 每 60 秒重新取一次「今天是哪一天」，这样跨过 UTC 零点后页面会自动换题。
+  /*
+   * 每 60 秒重新取一次「今天是哪一天」，这样跨过 UTC 零点后页面会自动换题。
+   *
+   * 存档 / 历史 / 每日记录等**不需要**在这里刷新：路由切换会卸载再挂载 HomePage，
+   * 挂载时各自的惰性初始化（useState(() => loadXxx())）已经读到最新数据；
+   * 之前这里再 setState 一遍只会多一轮渲染（lint 的 react-hooks/set-state-in-effect）。
+   */
   useEffect(() => {
-    const sync = () => {
+    const timer = window.setInterval(() => {
       const info = getDailyChallenge()
       setDaily(info)
       setDailyRecord(loadDailyRecords()[info.date] ?? null)
-    }
-    sync()
-    setSaved(loadProgress())
-    setHistory(loadHistory())
-    setRecordCounts(countRecordsByDifficulty())
-    setTutorialDone(hasCompletedTutorial())
-    const timer = window.setInterval(sync, 60_000)
+    }, 60_000)
     return () => window.clearInterval(timer)
   }, [])
 
@@ -183,6 +204,14 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
       </header>
 
       <main className="mx-auto flex max-w-4xl flex-col gap-4 p-3 sm:p-6">
+        {!canPersist ? (
+          <div className="flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:ring-amber-500/30">
+            <span className="flex-1">
+              当前浏览器无法保存进度（隐私模式，或存储配额已满），刷新页面后可能丢失数据。
+              游戏可以正常玩，但这段时间的成绩不会被记住。
+            </span>
+          </div>
+        ) : null}
         {banner ? (
           <div className="flex items-start gap-2 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30">
             <span className="flex-1">{banner}</span>
@@ -397,7 +426,10 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
         <footer className="space-y-1 pb-6 text-[11px] leading-relaxed text-ink-400">
           <p>
             操作：点击涂黑 / 右键（或长按）标记 X / 拖拽连续涂 / 方向键移动光标、空格涂黑、X 标记、Delete 清除、Ctrl+Z
-            撤销。 进度与成绩保存在浏览器本地，关闭页面后可以继续。
+            撤销。{' '}
+            {canPersist
+              ? '进度与成绩保存在浏览器本地，关闭页面后可以继续。'
+              : '当前浏览器无法保存进度，请勿中途关闭页面。'}
           </p>
           <p>
             项目仓库：

@@ -1,0 +1,28 @@
+# 依赖更新策略（审查报告 L-11）。
+#
+# 目标是「既不漏掉安全更新，也不制造一次刷一屏 PR」：
+#   · minor / patch 合并成一个 PR，review 成本低；
+#   · **major 不参与分组**，会各自单独开 PR —— 跨大版本必须单独评估 + 全量回归
+#     （例如 vite 6 这种升级，见 README 的部署说明），绝不与别的升级混在一起。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-minor-patch:
+        patterns: ['*']
+        dependency-type: development
+        update-types: ['minor', 'patch']
+      prod-minor-patch:
+        patterns: ['*']
+        dependency-type: production
+        update-types: ['minor', 'patch']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5

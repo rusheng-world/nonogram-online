@@ -5,7 +5,14 @@
  * 而 storage.ts 会缓存「是否可用」的探测结果，必须独占一个模块实例。
  */
 import { describe, expect, it } from 'vitest'
-import { clearProgress, loadProgress, saveProgress, storageAvailable, type StoredProgress } from '../src/core/storage'
+import {
+  clearProgress,
+  loadProgress,
+  saveProgress,
+  storageAvailable,
+  storageDegraded,
+  type StoredProgress,
+} from '../src/core/storage'
 
 const denied = (): never => {
   throw new Error('localStorage is not available')
@@ -55,5 +62,9 @@ describe('localStorage 不可用', () => {
 
     clearProgress()
     expect(loadProgress()).toBeNull()
+  })
+
+  it('storageDegraded() 为 true —— 界面据此提示「无法保存进度」（L-03）', () => {
+    expect(storageDegraded()).toBe(true)
   })
 })

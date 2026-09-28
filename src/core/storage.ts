@@ -51,6 +51,13 @@ export const SOLVER_HISTORY_KEY = 'nonogram-solver-history-v1'
  */
 export const TUTORIAL_KEY = 'nonogram-tutorial-v1'
 
+/**
+ * 设置项。这个 key 由 zustand/persist **自己**读写（信封格式是 `{state, version}`，
+ * 不是本文件的 `{v, data}`），所以这里只负责「启动自检时也检查它」，
+ * 真正损坏时的回退交给 persist 的 `onRehydrateStorage`（见 store/settingsStore.ts，L-02）。
+ */
+export const SETTINGS_KEY = 'nonogram-settings-v1'
+
 /** 历史成绩最多保留多少条（统计页要按它算平均 / 连续天数，所以别太小） */
 export const HISTORY_LIMIT = 200
 
@@ -78,12 +85,25 @@ export function storageAvailable(): boolean {
   return available
 }
 
+/**
+ * 是否发生了「写入退化成内存存储」。
+ * localStorage 存在但**配额已满**时，rawSet 会静默退化成内存 Map ——
+ * 当次会话还能继续玩，但刷新后这些写入会丢。这个标志让 UI 能如实告诉玩家（L-03）。
+ */
+let writeDegraded = false
+export function storageDegraded(): boolean {
+  return !storageAvailable() || writeDegraded
+}
+
 /** 不可用时的内存兜底，保证功能不崩 */
 const memory = new Map<string, string>()
 
 function rawGet(key: string): string | null {
   if (storageAvailable()) {
     try {
+      // 配额满之后写进内存的那一份优先：否则「刚写进去的数据」永远读不回来
+      const cached = memory.get(key)
+      if (cached !== undefined) return cached
       return window.localStorage.getItem(key)
     } catch {
       return null
@@ -96,9 +116,12 @@ function rawSet(key: string, value: string): void {
   if (storageAvailable()) {
     try {
       window.localStorage.setItem(key, value)
+      // 写成功就把内存影子副本删掉，免得之后读到「上一次写失败留下的旧值」
+      memory.delete(key)
       return
     } catch {
-      /* 配额满：退化成内存存储 */
+      /* 配额满：退化成内存存储，并标记出来（见 storageDegraded） */
+      writeDegraded = true
     }
   }
   memory.set(key, value)
@@ -216,6 +239,8 @@ export function migrateStorage(): { version: number; issues: string[] } {
     [ACHIEVEMENTS_KEY, isObject],
     [SOLVER_HISTORY_KEY, Array.isArray],
     [TUTORIAL_KEY, (value) => isObject(value) && typeof (value as { step?: unknown }).step === 'number'],
+    // 设置：persist 的信封是 {state, version}，state 必须是对象，否则丢弃回默认值
+    [SETTINGS_KEY, (value) => isObject(value) && (value.state === undefined || isObject(value.state))],
   ]
   for (const [key, validate] of checks) {
     const raw = rawGet(key)
@@ -460,14 +485,30 @@ export interface DailyRecord {
 
 export type DailyMap = Record<string, DailyRecord>
 
+/**
+ * UTC 日期键是否合法：`YYYY-MM-DD` 且是真实存在的日期。
+ * 只做 `^\d{4}-\d{2}-\d{2}$` 还不够 —— `2026-13-45` / `2026-02-30` 也符合这个形状，
+ * 但它们会被 `Date.UTC` 静默进位，进而污染连续天数统计。所以用一次往返校验钉死（L-04）。
+ */
+function isUtcDateKey(key: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return false
+  const [year, month, day] = key.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
 export function loadDailyRecords(): DailyMap {
   const value = readJson<unknown>(DAILY_KEY, {})
   if (!isObject(value)) return {}
   const next: DailyMap = {}
   for (const [key, raw] of Object.entries(value)) {
-    if (isObject(raw) && typeof raw.timeMs === 'number' && typeof raw.date === 'string') {
-      next[key] = raw as unknown as DailyRecord
-    }
+    // 严格校验：key 必须是合法 UTC 日期键，记录内的 date 必须与之一致，timeMs 必须是有限数字。
+    // 手改 / 损坏 / 恶意构造（例如 `__proto__`）的条目一律丢弃，绝不影响其它正常统计（L-04）。
+    if (!isUtcDateKey(key)) continue
+    if (!isObject(raw)) continue
+    if (raw.date !== key) continue
+    if (typeof raw.timeMs !== 'number' || !Number.isFinite(raw.timeMs)) continue
+    next[key] = raw as unknown as DailyRecord
   }
   return next
 }
@@ -567,7 +608,11 @@ export function saveTutorialProgress(progress: { step: number; completed: boolea
   writeJson(TUTORIAL_KEY, { ...progress, updatedAt: Date.now() })
 }
 
-/** 清空全部本地数据（设置页的「清除所有数据」用） */
+/**
+ * 清空全部本地数据（设置页的「清除全部数据」用）。
+ * 刻意**不包含** SETTINGS_KEY：界面上的文案是「设置本身保留」，
+ * 重置设置另有入口（设置页的 reset / 「恢复默认设置」）。
+ */
 export function clearAllData(): void {
   for (const key of [
     SCHEMA_KEY,

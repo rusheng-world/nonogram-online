@@ -209,6 +209,17 @@ export function GameBoard({ highlight = null, guard = null, maxCell }: GameBoard
     }
   }
 
+  // 卸载时清掉可能还在等待的长按定时器（L-06）：此前只在指针事件里清理，
+  // 玩家按住不放直接切走页面时会留下一个 450ms 的悬空回调。
+  useEffect(() => {
+    return () => {
+      if (longPressRef.current !== null) {
+        window.clearTimeout(longPressRef.current)
+        longPressRef.current = null
+      }
+    }
+  }, [])
+
   const indexFromEvent = (clientX: number, clientY: number): number => {
     const node = wrapRef.current
     if (!node) return -1
@@ -462,27 +473,35 @@ export function GameBoard({ highlight = null, guard = null, maxCell }: GameBoard
               gridTemplateRows: `repeat(${height}, ${cell}px)`,
             }}
           >
-            {Array.from({ length: width * height }, (_, index) => {
-              const x = index % width
-              const y = Math.floor(index / width)
-              const inFocus = hlRows.has(y) || hlCols.has(x)
-              return (
-                <Cell
-                  key={index}
-                  index={index}
-                  row={y + 1}
-                  col={x + 1}
-                  state={board[index]}
-                  wrong={wrong[index]}
-                  guideX={x % 5 === 0}
-                  guideY={y % 5 === 0}
-                  hl={inFocus}
-                  soft={softCells.has(index)}
-                  dim={focusMode && !inFocus}
-                  registerRef={registerRef}
-                />
-              )
-            })}
+            {/*
+             * 无障碍结构要是 grid → row → gridcell 三层，而这里是一整块 CSS grid。
+             * 解决方式：每行包一个 display:contents 的 role="row" 容器 —— 它不生成盒子，
+             * 格子仍由 .nb-board 排版（视觉零变化），只为辅助技术补上「行」这一层。
+             */}
+            {Array.from({ length: height }, (_, y) => (
+              <div key={`row-${y}`} role="row" style={{ display: 'contents' }}>
+                {Array.from({ length: width }, (_, x) => {
+                  const index = y * width + x
+                  const inFocus = hlRows.has(y) || hlCols.has(x)
+                  return (
+                    <Cell
+                      key={index}
+                      index={index}
+                      row={y + 1}
+                      col={x + 1}
+                      state={board[index]}
+                      wrong={wrong[index]}
+                      guideX={x % 5 === 0}
+                      guideY={y % 5 === 0}
+                      hl={inFocus}
+                      soft={softCells.has(index)}
+                      dim={focusMode && !inFocus}
+                      registerRef={registerRef}
+                    />
+                  )
+                })}
+              </div>
+            ))}
           </div>
 
           {/* 高亮当前行 / 列 */}

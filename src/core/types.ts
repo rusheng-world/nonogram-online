@@ -210,12 +210,27 @@ export const DIFFICULTY_META: Record<
   },
 }
 
-/** 编辑器允许的尺寸范围 */
+/** 编辑器画布允许的尺寸范围（自定义谜题的创作上限） */
 export const MIN_EDITOR_SIZE = 5
 export const MAX_EDITOR_SIZE = 50
 
-/** 游戏内允许的最大棋盘边长（超过此值仅编辑器可用） */
+/**
+ * 「舒适游玩」的推荐最大棋盘边长。
+ *
+ * 这是**产品口径**，不是硬性技术上限，两个概念不要混：
+ *   · `MAX_EDITOR_SIZE`（50）= 画布能画多大 —— 编辑器 / 分享码 / 从编辑器开局都遵守它；
+ *   · `MAX_PLAY_SIZE`（25） = 多大的盘面还舒服 —— 超过它盘面仍能打开（格子会被压到 11px、
+ *     手机端需要横向滚动），但界面必须提示；
+ *   · 通过 URL 直接开玩（`#/play?p=`）时尺寸不受这一段约束（最大可到 `MAX_EDITOR_SIZE`），
+ *     代价是「按种子重新生成」可能耗时数秒 —— 因此该路径必须先渲染 loading 再计算，
+ *     见 `game/bootstrap.ts` 的 `bootstrapNeedsGeneration()` 与 GamePage 的载入态。
+ */
 export const MAX_PLAY_SIZE = 25
+
+/** 盘面是否超出「舒适游玩」尺寸（只用于提示，不阻止开局） */
+export function exceedsComfortablePlaySize(width: number, height: number): boolean {
+  return width > MAX_PLAY_SIZE || height > MAX_PLAY_SIZE
+}
 
 export function isDifficulty(value: unknown): value is Difficulty {
   return typeof value === 'string' && (DIFFICULTIES as readonly string[]).includes(value)

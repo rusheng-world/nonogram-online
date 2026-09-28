@@ -29,6 +29,7 @@ import {
   MAX_EDITOR_SIZE,
   MAX_PLAY_SIZE,
   MIN_EDITOR_SIZE,
+  exceedsComfortablePlaySize,
   type Difficulty,
   type Puzzle,
 } from '../core/types'
@@ -174,6 +175,8 @@ export function EditorPage({ params }: { params: URLSearchParams }): JSX.Element
   const [uploadText, setUploadText] = useState('')
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [confirmStart, setConfirmStart] = useState<{ puzzle: Puzzle; warnings: string[] } | null>(null)
+  /** 剪贴板不可用时的兜底：把分享链接放进只读文本框让用户手动复制（与 GamePage 同一套） */
+  const [shareText, setShareText] = useState<string | null>(null)
   const [analysis, setAnalysis] = useState<{
     unique: boolean | 'unknown'
     difficulty: Difficulty
@@ -476,7 +479,7 @@ export function EditorPage({ params }: { params: URLSearchParams }): JSX.Element
     } else {
       warnings.push(`画布 ${width}×${height} 较大，已跳过唯一性校验（求解器开销过高）。`)
     }
-    if (width > MAX_PLAY_SIZE || height > MAX_PLAY_SIZE) {
+    if (exceedsComfortablePlaySize(width, height)) {
       warnings.push(`尺寸超过 ${MAX_PLAY_SIZE}×${MAX_PLAY_SIZE}：游戏页格子会很小，手机端可能需要横向滚动。`)
     }
 
@@ -505,7 +508,13 @@ export function EditorPage({ params }: { params: URLSearchParams }): JSX.Element
       await navigator.clipboard.writeText(url)
       setNotice('分享链接已复制（图案已编码进链接）')
     } catch {
-      setNotice(url)
+      /*
+       * 剪贴板不可用（http 非安全上下文、权限被拒、老浏览器）：
+       * 链接有 400+ 字符，塞进自动消失的提示条里用户根本没法复制，
+       * 所以改成「弹窗 + 只读文本框（聚焦即全选）」，与 GamePage 的分享弹窗保持一致。
+       */
+      setNotice('浏览器不允许自动复制，请在弹窗里手动复制')
+      setShareText(url)
     }
   }
 
@@ -839,6 +848,29 @@ export function EditorPage({ params }: { params: URLSearchParams }): JSX.Element
             <li key={warning}>{warning}</li>
           ))}
         </ul>
+      </Modal>
+
+      {/* 剪贴板不可用时的兜底：只读文本框，聚焦即全选，手动复制即可（与 GamePage 一致） */}
+      <Modal
+        open={shareText !== null}
+        title="分享链接"
+        onClose={() => setShareText(null)}
+        footer={
+          <Button variant="primary" onClick={() => setShareText(null)}>
+            好
+          </Button>
+        }
+      >
+        <p className="text-xs text-ink-500 dark:text-ink-400">
+          浏览器不允许自动写入剪贴板，请点进下面的文本框（会自动全选）后按 Ctrl+C 复制。
+        </p>
+        <textarea
+          readOnly
+          value={shareText ?? ''}
+          rows={3}
+          onFocus={(event) => event.currentTarget.select()}
+          className="w-full resize-none rounded-xl border border-ink-200 bg-ink-50 p-2 font-mono text-[11px] text-ink-700 dark:border-ink-700 dark:bg-ink-800 dark:text-ink-200"
+        />
       </Modal>
     </div>
   )

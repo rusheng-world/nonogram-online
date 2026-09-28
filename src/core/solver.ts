@@ -731,7 +731,6 @@ export function computeHint(puzzle: Puzzle, playerBoard: Uint8Array): Hint | nul
   const board = createBoard(puzzle.width * puzzle.height)
   const log: number[] = []
   ctx.log = log
-  const limits = createLimits({ nodeLimit: 20_000, timeLimitMs: 200 })
   const ok = propagate(ctx, board, { rounds: 0, deduced: 0 })
   ctx.log = null
 
@@ -749,7 +748,6 @@ export function computeHint(puzzle: Puzzle, playerBoard: Uint8Array): Hint | nul
   const cell = chooseBranchCell(ctx, board)
   if (cell < 0) return null
   const value = puzzle.solution[cell] ? FILLED : EMPTY
-  void limits
   return { index: cell, value, isGuess: true }
 }
 

@@ -11,7 +11,13 @@ import { computeClues } from '../src/core/clues'
 import { encodePuzzleCode } from '../src/core/encoding'
 import { clearAllData, encodeBoard, saveProgress, type StoredProgress } from '../src/core/storage'
 import { EMPTY, FILLED, type Difficulty, type Puzzle } from '../src/core/types'
-import { ensureGame, puzzleFromStored, restoreFromStored, samePattern } from '../src/game/bootstrap'
+import {
+  bootstrapNeedsGeneration,
+  ensureGame,
+  puzzleFromStored,
+  restoreFromStored,
+  samePattern,
+} from '../src/game/bootstrap'
 import { createNewGame } from '../src/game/newGame'
 import { useGameStore } from '../src/store/gameStore'
 
@@ -202,5 +208,47 @@ describe('createNewGame：新开一局与「刷新后同一道题」', () => {
       expect(outcome.notice).toBeTruthy()
     }
     expect(outcome.puzzle.width).toBe(outcome.puzzle.height)
+  })
+})
+
+/*
+ * M-01：「?p= 需要按种子重新生成」的预判。
+ * 页面用它决定是否先渲染 loading 遮罩 —— 判错只影响提示，不影响正确性，
+ * 但判漏会让主线程在无提示的情况下冻结数秒，所以这里把每个分支都钉死。
+ */
+describe('直接开玩的生成成本预判（bootstrapNeedsGeneration）', () => {
+  it('分享码 / 无参数 / 非法 id 都不需要重新生成（毫秒级）', () => {
+    const code = encodePuzzleCode(makePuzzle())
+    expect(bootstrapNeedsGeneration(new URLSearchParams({ s: code }))).toBe(false)
+    expect(bootstrapNeedsGeneration(new URLSearchParams())).toBe(false)
+    expect(bootstrapNeedsGeneration(new URLSearchParams({ p: 'nonsense-6x8-abc' }))).toBe(false)
+    expect(bootstrapNeedsGeneration(new URLSearchParams({ p: 'easy-5x5' }))).toBe(false)
+  })
+
+  it('?p= 且 store / 存档里都没有这道题时为 true（需要跑生成器）', () => {
+    const generated = createNewGame('easy', 'needs-generation')
+    expect(bootstrapNeedsGeneration(new URLSearchParams({ p: generated.puzzle.id }))).toBe(true)
+  })
+
+  it('store 里已经有这道题（未完成）时为 false', () => {
+    const generated = createNewGame('easy', 'already-open')
+    useGameStore.getState().startPuzzle(generated.puzzle, 'lenient', null)
+    expect(bootstrapNeedsGeneration(new URLSearchParams({ p: generated.puzzle.id }))).toBe(false)
+  })
+
+  it('存在同一道题的存档时为 false（走恢复而不是重新生成）', () => {
+    const generated = createNewGame('easy', 'has-save')
+    resetStore()
+    saveProgress(
+      storedSnapshot({
+        puzzleId: generated.puzzle.id,
+        seed: generated.puzzle.seed,
+        width: generated.puzzle.width,
+        height: generated.puzzle.height,
+        solution: encodeBoard(generated.puzzle.solution),
+        board: encodeBoard(new Uint8Array(generated.puzzle.solution.length)),
+      }),
+    )
+    expect(bootstrapNeedsGeneration(new URLSearchParams({ p: generated.puzzle.id }))).toBe(false)
   })
 })

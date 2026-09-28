@@ -2,6 +2,36 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)：**修订号（第三位）只用于修 bug**，**次版本（第二位）用于实质性功能增加**。
 
+## [1.2.1]
+
+本版是**安全与稳定性修复**（对应 `CODE_AUDIT_REPORT.md` 的审查结论），不新增玩法，不改动 solver / generator / 存储架构。
+
+### Fixed
+
+- **`#/play?p=<id>` 打开时主线程冻结数秒（M-01）**：该路径会按种子同步重新生成谜题（实测 50×50 困难档约 4.1 秒，且没有任何反馈）。现在 `bootstrapNeedsGeneration()` 会先判断这次开玩是否真的要跑生成器，需要时先渲染 loading 遮罩、让出一帧再开跑；「点了链接 → 页面无响应 → 突然出现游戏」变成「可见的等待 → 进入游戏」。同时把 `MAX_PLAY_SIZE`（舒适游玩尺寸）与 `MAX_EDITOR_SIZE`（画布创作上限）的口径写清楚，新增 `exceedsComfortablePlaySize()` 作为唯一判定入口；50×50 的编辑器 / 分享码路径保持可用。
+- **未捕获异常直接白屏（M-03）**：新增最薄的 `ErrorBoundary`（`src/components/ErrorBoundary.tsx`），只显示「发生了一点问题 / 重新加载 / 返回首页」，不展示 stack 与源码路径，不引入第三方库；并补上 `currentThemeIsDark()` 里 `window.matchMedia` 的存在性判断（此前「跟随系统」主题在老浏览器会抛 TypeError）。
+- **编辑器分享链接在剪贴板不可用时无法复制（L-01）**：不再把 400+ 字符的链接塞进会自动消失的提示条，改为与游戏页一致的「弹窗 + 只读文本框（聚焦即全选）」。
+- **设置损坏时完全静默（L-02）**：设置 key 纳入启动自检 `migrateStorage()`，并给 zustand persist 补上 `onRehydrateStorage` 警告 —— 行为仍是安全回退到默认值，只是不再无声无息。
+- **配额满 / 隐私模式下「以为存了其实没存」（L-03）**：新增 `storageDegraded()`（写入失败会置位），首页据此显示「当前浏览器无法保存进度，刷新页面后可能丢失数据」，且不影响继续游戏；同时修掉「写进内存却仍去读 localStorage 旧值」的不一致。
+- **每日挑战记录可被手改撑破统计（L-04）**：`loadDailyRecords()` 现在严格校验 key 与记录内的 `date`（必须是真实存在的 UTC 日期键 `YYYY-MM-DD`、两者一致、`timeMs` 为有限数字），非法 / 空 / 恶意构造（如 `__proto__`）的条目直接丢弃。
+- **求解器抛异常时 Promise 永不落地（L-07）**：非 Worker 兜底路径补上 try/catch 并 `reject(error)`（此前页面会永远停在「求解中…」），自动解题页据此显示明确错误；同时给 Worker 的 `postMessage` 补了同类兜底。
+- **三处生命周期未清理（L-06）**：棋盘长按定时器、首页 launch 延迟定时器、自动解题页卸载时的求解取消。
+- **无障碍（L-08）**：棋盘补上 `grid → row → gridcell` 中间层（`display: contents` 行容器，视觉零变化）；Modal 支持 Esc 关闭、基本焦点陷阱（Tab 循环）、打开时锁定背景滚动、关闭后焦点还原。
+- **死代码与文档不一致（L-10）**：删除未使用的 `LARGE_BOARD_SIZE`、`computeHint` 里无意义的 `createLimits`、`text.ts` 不可达的「已自动裁剪到 5~50」警告；修正 README 里「全空行记为 `[]`」（实际是 `[0]`）。
+
+### Security
+
+- **不再默认鼓励把开发服务器暴露到公网（M-02）**：`vite.config.ts` 去掉 `allowedHosts: true`，dev / preview 默认只监听 `localhost`、只放行 localhost 与本机 IP 的 Host 头；需要局域网 / 公网分享时必须显式设置 `NONOGRAM_EXPOSE=1`（域名另需 `NONOGRAM_ALLOWED_HOSTS`）。`share.bat` 会替用户设好这两项并打印醒目的安全提示，`start.bat` 的文案同步更新，README 增加「开发服务器不是生产服务器」的警告。GitHub Pages 部署不受影响。
+- **CI 增加生产依赖门禁（L-11）**：`pnpm audit --prod` 只对生产依赖设红线（dev 依赖不进产物，交给 Dependabot 开 PR），并新增 `.github/dependabot.yml`：minor / patch 分组，major 单独开 PR。
+
+### Tests
+
+- 新增 `tests/bootstrap.test.ts` 的「生成成本预判」4 例、`tests/settings.test.ts`（4 例，主题 / matchMedia 兼容）、`tests/dailyRecords.test.ts`（9 例，含非法日期、非法 key、空 key、`__proto__` 等恶意构造）、`tests/storageQuota.test.ts`（2 例，配额满降级）、`tests/solverClient.test.ts`（4 例，含「抛异常必须 reject」）。
+
+### Info
+
+- 本次**未**处理（按审查报告的建议保持现状）：原型污染形态加固（I-01，已确认无可利用路径）、CSP（I-02，GitHub Pages 响应头能力有限且项目有内联脚本）、存档里的答案明文（I-04，纯前端数织的正常设计）、路由级懒加载（I-05，收益不足）。
+
 ## [1.2.0]
 
 ### Added

@@ -20,13 +20,19 @@ import { DIFFICULTY_META, EMPTY, FILLED, UNKNOWN } from '../core/types'
 import { achievementById } from '../core/achievements'
 import { buildShareUrl } from '../core/encoding'
 import { getBest } from '../core/storage'
-import { ensureGame } from '../game/bootstrap'
+import { bootstrapNeedsGeneration, ensureGame } from '../game/bootstrap'
 import { formatDuration, useElapsedMs } from '../hooks/useElapsed'
 import { HINT_PENALTY_MS, useGameStore } from '../store/gameStore'
 import { useSettingsStore } from '../store/settingsStore'
 import { SITE_URL } from '../project'
 import { navigate } from '../router'
 import { playSound } from '../utils/sound'
+
+/**
+ * 需要主线程「按种子重新生成」时，先让出一帧再开跑，好让 loading 遮罩先画出来。
+ * 与 HomePage.launch 用同一套做法（32ms ≈ 2 帧，足够完成一次绘制）。
+ */
+const BOOTSTRAP_DEFER_MS = 32
 
 export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
   const puzzle = useGameStore((s) => s.puzzle)
@@ -75,12 +81,26 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
   useEffect(() => {
     if (keyRef.current.toString() === params.toString() && useGameStore.getState().puzzle) return
     keyRef.current = params
-    const outcome = ensureGame(params, judgeSetting)
-    if (!outcome.ok) {
-      setLoadError(outcome.error ?? '无法开始游戏')
-      // 没有指定谜题时，直接在首页随机开一局（见 HomePage）
-      navigate('/?error=' + encodeURIComponent(outcome.error ?? ''))
+    const run = () => {
+      const outcome = ensureGame(params, judgeSetting)
+      if (!outcome.ok) {
+        setLoadError(outcome.error ?? '无法开始游戏')
+        // 没有指定谜题时，直接在首页随机开一局（见 HomePage）
+        navigate('/?error=' + encodeURIComponent(outcome.error ?? ''))
+      }
     }
+    /*
+     * `?p=` 且 store / 存档里都没有这道题时，ensureGame 会在主线程同步跑一次生成器
+     * （大尺寸可达数秒）。这时先把渲染让给 loading 遮罩，再接主线程：
+     * 玩家看到的是「正在生成…」而不是「页面卡死」。
+     * 其余入口（分享码 / 恢复存档 / 已在内存里的对局）都是毫秒级，直接同步执行。
+     */
+    if (!bootstrapNeedsGeneration(params)) {
+      run()
+      return
+    }
+    const timer = window.setTimeout(run, BOOTSTRAP_DEFER_MS)
+    return () => window.clearTimeout(timer)
   }, [params, judgeSetting])
 
   // 键盘操作
@@ -188,6 +208,9 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
   // 最佳成绩现在分「不限条件」与「零提示」两条，展示值取前者
   const records = useMemo(() => {
     if (!puzzle) return null
+    // completed 是**失效信号**而不是计算输入：一局结束时成绩才写进 localStorage，
+    // 而 puzzle 对象没有变化 —— 不把它列进依赖，结算页会显示上一局的最佳成绩。
+    void completed
     return getBest(puzzle.difficulty, puzzle.seed)
   }, [puzzle, completed])
   const best = records?.best ?? null
@@ -219,8 +242,10 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
 
   if (!puzzle) {
     return (
-      <div className="flex flex-1 items-center justify-center p-6 text-sm text-ink-500 dark:text-ink-400">
-        正在载入题目…
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-ink-300 border-t-indigo-500 dark:border-ink-700 dark:border-t-indigo-400" />
+        <p className="text-sm font-medium text-ink-800 dark:text-ink-100">正在载入题目…</p>
+        <p className="text-[11px] text-ink-500 dark:text-ink-400">首次打开或大尺寸盘面需要几秒钟，请稍候</p>
       </div>
     )
   }

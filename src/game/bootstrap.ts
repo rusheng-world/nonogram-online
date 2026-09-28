@@ -56,6 +56,33 @@ export interface LoadOutcome {
 }
 
 /**
+ * 「直接开玩」的载入成本预判：这次打开游戏页是否需要**按种子重新生成**谜题？
+ *
+ * 只有 `#/play?p=<id>` 这条路可能很贵：
+ *   · 分享码 `?s=` 自带图案，只做解码 + 算线索（毫秒级）；
+ *   · 恢复存档 / store 里已有这道题同样是毫秒级；
+ *   · 只有「既不在 store、又没有对应存档、且 id 合法」时才真的要跑生成器 ——
+ *     尺寸越大越慢（实测 50×50 困难档约 4 秒，且全部发生在主线程）。
+ *
+ * 页面据此在**开跑之前**先渲染 loading 遮罩（见 GamePage 的载入态），
+ * 避免「点开链接 → 页面无响应数秒 → 突然出现游戏」。
+ * 这个函数只做判断、不做任何计算，所以可以放心在 render / effect 里调用。
+ */
+export function bootstrapNeedsGeneration(params: URLSearchParams): boolean {
+  // `?s=` 分支自带图案，永远不需要重新生成
+  if (params.get('s')) return false
+  const id = params.get('p')
+  if (!id) return false
+  // 非法 id 会立刻返回错误（毫秒级），不必为它显示 loading
+  if (!parsePuzzleId(id)) return false
+  const store = useGameStore.getState()
+  if (store.puzzle?.id === id && !store.completed) return false
+  const saved = loadProgress()
+  if (saved && saved.puzzleId === id) return false
+  return true
+}
+
+/**
  * 两个谜题是否「同一道题」：尺寸相同 + 图案逐格相同。
  * 用于「分享码指向的题就是当前正在玩的题」这种情况，避免重复 startPuzzle。
  */
