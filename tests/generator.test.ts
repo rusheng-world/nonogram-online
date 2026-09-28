@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { boardSizeFor, generatePuzzle, generatePattern, defaultTimeBudget } from '../src/core/generator'
+import {
+  UNLIMITED_TIME_BUDGET_MS,
+  boardSizeFor,
+  defaultTimeBudget,
+  generatePattern,
+  generatePuzzle,
+} from '../src/core/generator'
 import { analyzePuzzle, classifyDifficulty } from '../src/core/difficulty'
 import { computeClues } from '../src/core/clues'
 import { DIFFICULTIES } from '../src/core/types'
@@ -27,15 +33,24 @@ describe('图案生成', () => {
 
 describe('谜题生成', () => {
   it('同 seed 生成结果一致（可复现）', () => {
-    const a = generatePuzzle({ width: 10, height: 10, difficulty: 'medium', seed: 'repro-1', timeBudgetMs: 800 })
-    const b = generatePuzzle({ width: 10, height: 10, difficulty: 'medium', seed: 'repro-1', timeBudgetMs: 800 })
+    // 用不限时预算：这里要验的是"算法可复现"，不是"这台机器够快"。
+    // 若给一个刚好卡在边界上的有限预算，两次调用会因为墙钟落点不同而跑出不同长度的候选搜索。
+    const options = {
+      width: 10,
+      height: 10,
+      difficulty: 'medium',
+      seed: 'repro-1',
+      timeBudgetMs: UNLIMITED_TIME_BUDGET_MS,
+    } as const
+    const a = generatePuzzle(options)
+    const b = generatePuzzle(options)
     expect(a.puzzle.id).toBe(b.puzzle.id)
     expect(Array.from(a.puzzle.solution)).toEqual(Array.from(b.puzzle.solution))
     expect(a.puzzle.rowClues).toEqual(b.puzzle.rowClues)
     expect(a.puzzle.colClues).toEqual(b.puzzle.colClues)
   })
 
-  it('生成的谜题一定有且只有一个解', () => {
+  it('生成的谜题一定有且只有一个解（不限时预算）', () => {
     let checked = 0
     for (const difficulty of DIFFICULTIES) {
       for (let i = 0; i < 6; i++) {
@@ -45,6 +60,7 @@ describe('谜题生成', () => {
           height,
           difficulty,
           seed: `unique-${difficulty}-${i}`,
+          timeBudgetMs: UNLIMITED_TIME_BUDGET_MS,
         })
         const analysis = analyzePuzzle(result.puzzle, { nodeLimit: 120_000, timeLimitMs: 4000 })
         expect(analysis.unique, `${difficulty} ${width}x${height} seed=${result.puzzle.seed}`).toBe(true)
@@ -54,6 +70,31 @@ describe('谜题生成', () => {
       }
     }
     expect(checked).toBe(24)
+  })
+
+  /**
+   * 回归：曾经有一版实现里「墙钟预算会中途打断候选搜索」，
+   * 导致同一 seed 在慢机器 / 覆盖率插桩下会得出不同结论（难度达标率忽高忽低）。
+   * 这里固定成不限时预算，确保生成质量只由 seed + 候选次数决定。
+   */
+  it('不限时预算下，同一 seed 连续生成 3 次结果完全一致（不受墙钟影响）', () => {
+    for (const difficulty of DIFFICULTIES) {
+      const { width, height } = boardSizeFor(difficulty)
+      const options = {
+        width,
+        height,
+        difficulty,
+        seed: `wallclock-proof-${difficulty}`,
+        timeBudgetMs: UNLIMITED_TIME_BUDGET_MS,
+      } as const
+      const runs = [generatePuzzle(options), generatePuzzle(options), generatePuzzle(options)]
+      for (const run of runs.slice(1)) {
+        expect(run.puzzle.id, `${difficulty} id 变了`).toBe(runs[0].puzzle.id)
+        expect(Array.from(run.puzzle.solution), `${difficulty} 图案变了`).toEqual(Array.from(runs[0].puzzle.solution))
+        expect(run.matched, `${difficulty} 达标结论变了`).toBe(runs[0].matched)
+        expect(run.score, `${difficulty} 难度分变了`).toBe(runs[0].score)
+      }
+    }
   })
 
   it('线索与图案一致（生成器不写错线索）', () => {
@@ -80,7 +121,14 @@ describe('难度分级', () => {
         const seed = `accept-${target}-${i}`
         const { width, height } = boardSizeFor(target)
         const t0 = performance.now()
-        const result = generatePuzzle({ width, height, difficulty: target, seed })
+        // 质量断言与机器快慢解耦：关掉墙钟，只看候选次数
+        const result = generatePuzzle({
+          width,
+          height,
+          difficulty: target,
+          seed,
+          timeBudgetMs: UNLIMITED_TIME_BUDGET_MS,
+        })
         const ms = performance.now() - t0
         totalMs += ms
         slowest = Math.max(slowest, ms)

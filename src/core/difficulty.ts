@@ -91,7 +91,7 @@ export function analyzePuzzle(puzzle: Puzzle, opts: AnalyzeOptions = {}): Analyz
   const limitsA = createLimits({ nodeLimit: Math.max(2_000, Math.floor(nodeLimit / 4)), timeLimitMs })
   const { solution, stats } = solveFirst(ctx, board, limitsA)
 
-  let unique: boolean | 'unknown' = 'unknown'
+  let unique: boolean | 'unknown'
   let truncated = stats.truncated
 
   if (solution) {
@@ -136,7 +136,13 @@ export function analyzePuzzle(puzzle: Puzzle, opts: AnalyzeOptions = {}): Analyz
   }
 
   const difficulty = classifyDifficulty(metrics, puzzle.width, puzzle.height)
-  return { unique, solution, metrics, difficulty, score: difficultyScore(metrics, puzzle.width, puzzle.height) }
+  return {
+    unique,
+    solution,
+    metrics,
+    difficulty,
+    score: solverDifficultyScore(metrics, puzzle.width, puzzle.height),
+  }
 }
 
 const TIER_ORDER: Record<Difficulty, number> = { easy: 0, medium: 1, hard: 2, expert: 3 }
@@ -191,10 +197,16 @@ export function classifyDifficulty(m: DifficultyMetrics, width: number, height: 
 }
 
 /**
- * 连续难度分（0~100）。分级本身由规则决定，这个分数只用于展示/排序，
+ * 连续难度分（0~100），**基于程序化求解成本**的启发式指标。
+ *
+ * 命名有意写全：它衡量的是「本项目的求解器按固定启发式解这道题需要多少推理成本」，
+ * 而不是经过真人实验校准的「人类体感难度」。两者高度相关但不等价，
+ * 因此对外一律称它为 solver difficulty，不要当成科学指标宣传。
+ *
+ * 分级本身由 classifyDifficulty 的规则决定，这个分数只用于展示 / 排序，
  * 让玩家看到“同一档里哪个更难”。
  */
-export function difficultyScore(m: DifficultyMetrics, width: number, height: number): number {
+export function solverDifficultyScore(m: DifficultyMetrics, width: number, height: number): number {
   const maxDim = Math.max(width, height)
   const sizeFactor = Math.min(1, Math.max(0, (maxDim - 5) / 20))
   const score =

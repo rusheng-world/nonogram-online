@@ -17,9 +17,7 @@ export interface ParsedGrid {
   grid: Uint8Array
 }
 
-export type ParseOutcome =
-  | { ok: true; data: ParsedGrid; warnings: string[] }
-  | { ok: false; error: string }
+export type ParseOutcome = { ok: true; data: ParsedGrid; warnings: string[] } | { ok: false; error: string }
 
 export function parseTextGrid(text: string): ParseOutcome {
   const rawLines = text.replace(/\r\n?/g, '\n').split('\n')
@@ -57,7 +55,10 @@ export function parseTextGrid(text: string): ParseOutcome {
   const width = rows[0].length
   for (let i = 1; i < rows.length; i++) {
     if (rows[i].length !== width) {
-      return { ok: false, error: `第 ${i + 1} 行长度为 ${rows[i].length}，与第 1 行的 ${width} 不一致（所有行必须等长）` }
+      return {
+        ok: false,
+        error: `第 ${i + 1} 行长度为 ${rows[i].length}，与第 1 行的 ${width} 不一致（所有行必须等长）`,
+      }
     }
   }
 

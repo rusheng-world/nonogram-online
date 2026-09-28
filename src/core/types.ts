@@ -21,6 +21,21 @@ export type ThemeMode = 'light' | 'dark' | 'system'
 
 export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'medium', 'hard', 'expert']
 
+/**
+ * 每日挑战的难度轮换表（索引 = UTC 星期几，0 = 周日）。
+ * 「中等」占多数：每日挑战要让人愿意天天做，不能天天都是硬骨头，
+ * 但每周也要有一天专家题，给想挑战的人一点期待。
+ */
+export const DEFAULT_DAILY_ROTATION: readonly Difficulty[] = [
+  'medium',
+  'easy',
+  'medium',
+  'hard',
+  'medium',
+  'hard',
+  'expert',
+]
+
 /** 数字编码 ↔ 字符串状态 互转 */
 export const CELL_TO_STATE: readonly CellState[] = ['empty', 'filled', 'marked']
 export const STATE_TO_CELL: Record<CellState, number> = { empty: UNKNOWN, filled: FILLED, marked: EMPTY }
@@ -32,6 +47,8 @@ export function cellToState(value: number): CellState {
 export function stateToCell(state: CellState): number {
   return STATE_TO_CELL[state]
 }
+
+export type PuzzleSource = 'generated' | 'daily' | 'editor' | 'solver'
 
 export interface Puzzle {
   id: string
@@ -47,6 +64,10 @@ export interface Puzzle {
   seed: string
   /** 可选标题（自定义谜题/每日一题用） */
   title?: string
+  /** 谜题来源：每日挑战要单独记录，编辑器/自动解题来源用于成绩归属 */
+  source?: PuzzleSource
+  /** solverDifficultyScore（0~100），生成时算好带上，避免开局信息页再跑一次求解器 */
+  score?: number
 }
 
 /** 求解器在解题过程中统计出来的“人类推理成本”指标 */
@@ -86,6 +107,30 @@ export interface DifficultyAssessment {
   unique: boolean | 'unknown'
 }
 
+/**
+ * 谜题质量指标（供 QA CLI 与后续质量分析使用）。
+ *
+ * 全部从「已经算好的解 + 难度指标」派生，**不额外做搜索**，所以可以随便调用。
+ * 用途：批量生成时统计「这题干不干净」，例如退化线（全空/全满的行列）数量、
+ * 填充率分布、推理成本分布等。
+ */
+export interface PuzzleQualityMetrics {
+  /** 填充率 0~1 */
+  fillRate: number
+  /** 线索总数（行 + 列，空行/空列不计入） */
+  clueCount: number
+  /** 退化线数量：全空或全满的行 + 列 */
+  degenerateLines: number
+  /** 求解成本难度分 0~100（solverDifficultyScore） */
+  difficultyScore: number
+  /** 假设（回溯）次数 */
+  guesses: number
+  /** 求出第一个解时的假设链深度 */
+  solutionDepth: number
+  /** 行列传播轮数 */
+  propagationRounds: number
+}
+
 export const DIFFICULTY_META: Record<
   Difficulty,
   {
@@ -99,6 +144,8 @@ export const DIFFICULTY_META: Record<
     /** 需求难度表里该档的尺寸区间（含端点）：用于对外说明 / 文档，生成时不再随机取值 */
     minSize: number
     maxSize: number
+    /** 人类大致需要的分钟数区间（仅用于界面提示，来自实测体感，不是科学指标） */
+    estimatedMinutes: readonly [number, number]
     /** 生成时的目标填充率区间 */
     fillMin: number
     fillMax: number
@@ -111,6 +158,7 @@ export const DIFFICULTY_META: Record<
     boardSize: 5,
     minSize: 5,
     maxSize: 10,
+    estimatedMinutes: [1, 3],
     fillMin: 0.4,
     fillMax: 0.6,
     description: '纯行列约束传播即可解出，无需任何猜测',
@@ -121,6 +169,7 @@ export const DIFFICULTY_META: Record<
     boardSize: 10,
     minSize: 10,
     maxSize: 15,
+    estimatedMinutes: [3, 8],
     fillMin: 0.45,
     fillMax: 0.62,
     description: '需要多轮行列交叉传播，回溯 0~2 次',
@@ -131,6 +180,7 @@ export const DIFFICULTY_META: Record<
     boardSize: 15,
     minSize: 15,
     maxSize: 20,
+    estimatedMinutes: [5, 15],
     fillMin: 0.5,
     fillMax: 0.68,
     description: '需要 3~10 次回溯，或存在长线索交叉',
@@ -141,6 +191,7 @@ export const DIFFICULTY_META: Record<
     boardSize: 20,
     minSize: 20,
     maxSize: 25,
+    estimatedMinutes: [10, 25],
     fillMin: 0.52,
     fillMax: 0.7,
     description: '回溯超过 10 次，或需要深层假设链',

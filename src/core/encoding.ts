@@ -11,7 +11,7 @@ import { computeClues } from './clues'
 import { MAX_EDITOR_SIZE, MIN_EDITOR_SIZE, isDifficulty } from './types'
 import type { Difficulty, Puzzle } from './types'
 
-const DIFFICULTY_CODE: Record<Difficulty, string> = { easy: 'e', medium: 'm', hard: 'h', expert: 'x', }
+const DIFFICULTY_CODE: Record<Difficulty, string> = { easy: 'e', medium: 'm', hard: 'h', expert: 'x' }
 const CODE_DIFFICULTY: Record<string, Difficulty> = { e: 'easy', m: 'medium', h: 'hard', x: 'expert' }
 
 /* base64url 编解码。刻意不依赖 btoa/atob/Buffer：手写实现让同一份代码
@@ -93,7 +93,9 @@ export function decodeSolution(token: string, length: number): Uint8Array | null
 
 /** 把谜题编码成分享码（不含 id/时间等无关信息） */
 export function encodePuzzleCode(puzzle: Puzzle): string {
-  return ['v1', puzzle.width, puzzle.height, DIFFICULTY_CODE[puzzle.difficulty], encodeSolution(puzzle.solution)].join('.')
+  return ['v1', puzzle.width, puzzle.height, DIFFICULTY_CODE[puzzle.difficulty], encodeSolution(puzzle.solution)].join(
+    '.',
+  )
 }
 
 export interface DecodedPuzzle {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { AchievementToast } from '../components/AchievementToast'
 import { GameBoard } from '../components/GameBoard'
 import {
   IconBack,
@@ -10,17 +11,20 @@ import {
   IconRefresh,
   IconShare,
   IconSettings,
+  IconSolver,
   IconUndo,
   IconTrophy,
 } from '../components/icons'
 import { Button, Modal, Pill, Stat } from '../components/ui'
 import { DIFFICULTY_META, EMPTY, FILLED, UNKNOWN } from '../core/types'
+import { achievementById } from '../core/achievements'
 import { buildShareUrl } from '../core/encoding'
 import { getBest } from '../core/storage'
 import { ensureGame } from '../game/bootstrap'
 import { formatDuration, useElapsedMs } from '../hooks/useElapsed'
 import { HINT_PENALTY_MS, useGameStore } from '../store/gameStore'
 import { useSettingsStore } from '../store/settingsStore'
+import { SITE_URL } from '../project'
 import { navigate } from '../router'
 import { playSound } from '../utils/sound'
 
@@ -32,6 +36,12 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
   const hintsUsed = useGameStore((s) => s.hintsUsed)
   const checks = useGameStore((s) => s.checks)
   const newRecord = useGameStore((s) => s.newRecord)
+  const newNoHintRecord = useGameStore((s) => s.newNoHintRecord)
+  const unlockedAchievements = useGameStore((s) => s.unlockedAchievements)
+  const dismissAchievements = useGameStore((s) => s.dismissAchievements)
+  const started = useGameStore((s) => s.started)
+  const completedMs = useGameStore((s) => s.completedMs)
+  const pauseCount = useGameStore((s) => s.pauseCount)
   const notice = useGameStore((s) => s.notice)
   const past = useGameStore((s) => s.past)
   const future = useGameStore((s) => s.future)
@@ -39,7 +49,7 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
   const board = useGameStore((s) => s.board)
   const undo = useGameStore((s) => s.undo)
   const redo = useGameStore((s) => s.redo)
-  const useHint = useGameStore((s) => s.useHint)
+  const revealHint = useGameStore((s) => s.revealHint)
   const check = useGameStore((s) => s.check)
   const setPaused = useGameStore((s) => s.setPaused)
   const restart = useGameStore((s) => s.restart)
@@ -49,6 +59,7 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
   const autoPause = useSettingsStore((s) => s.autoPause)
   const soundOn = useSettingsStore((s) => s.sound)
   const paintMode = useSettingsStore((s) => s.paintMode)
+  const showStartScreen = useSettingsStore((s) => s.showStartScreen)
   const setSetting = useSettingsStore((s) => s.set)
   const judgeSetting = useSettingsStore((s) => s.judgeMode)
 
@@ -56,6 +67,7 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
   const [showReset, setShowReset] = useState(false)
   const [showShare, setShowShare] = useState(false)
   const [shareText, setShareText] = useState('')
+  const [startDismissed, setStartDismissed] = useState(false)
   const elapsed = useElapsedMs()
   const keyRef = useRef(params)
 
@@ -74,6 +86,9 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
   // 键盘操作
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // 在输入框 / 文本域里打字时不要触发棋盘快捷键（分享链接要能正常选中复制）
+      const target = event.target as HTMLElement | null
+      if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return
       const state = useGameStore.getState()
       const current = state.puzzle
       if (!current) return
@@ -142,7 +157,7 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
           break
         case 'h':
         case 'H':
-          state.useHint()
+          state.revealHint()
           if (soundOn) playSound('hint')
           event.preventDefault()
           break
@@ -170,10 +185,12 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
     return () => window.removeEventListener('visibilitychange', onVisibility)
   }, [autoPause])
 
-  const best = useMemo(() => {
+  // 最佳成绩现在分「不限条件」与「零提示」两条，展示值取前者
+  const records = useMemo(() => {
     if (!puzzle) return null
     return getBest(puzzle.difficulty, puzzle.seed)
   }, [puzzle, completed])
+  const best = records?.best ?? null
 
   const remaining = useMemo(() => {
     if (!puzzle) return 0
@@ -202,7 +219,9 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
 
   if (!puzzle) {
     return (
-      <div className="flex flex-1 items-center justify-center p-6 text-sm text-ink-500 dark:text-ink-400">正在载入题目…</div>
+      <div className="flex flex-1 items-center justify-center p-6 text-sm text-ink-500 dark:text-ink-400">
+        正在载入题目…
+      </div>
     )
   }
 
@@ -210,7 +229,7 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
   const judgeLabel = judgeMode === 'lenient' ? '宽松' : judgeMode === 'strict' ? '严格' : '极限'
 
   const onHint = () => {
-    const hint = useHint()
+    const hint = revealHint()
     if (hint && soundOn) playSound('hint')
   }
 
@@ -236,6 +255,40 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
     navigate(`/?start=${puzzle.difficulty}&seed=${seed}`)
   }
 
+  /**
+   * 分享成绩（需求 10）。
+   * 优先调起系统分享面板（Web Share API，手机浏览器基本都支持）；
+   * 不支持时退化成「复制到剪贴板」，两条路都不成功就什么都不做（用户取消分享也会走 catch）。
+   */
+  const onShareScore = async () => {
+    const text = [
+      `我刚刚完成了《数织工坊》的${meta.label}谜题！`,
+      '',
+      `${puzzle.width} × ${puzzle.height}`,
+      `⏱ 用时 ${formatDuration(completedMs)}`,
+      `❌ 错误 ${mistakes} 次`,
+      `💡 提示 ${hintsUsed} 次`,
+      '',
+      '你能超过我吗？',
+      SITE_URL,
+    ].join('\n')
+    try {
+      if (typeof navigator.share === 'function') {
+        await navigator.share({ title: '数织工坊 · 在线数织游戏', text, url: SITE_URL })
+        return
+      }
+      await navigator.clipboard.writeText(text)
+      setNotice('成绩已复制到剪贴板，粘贴给朋友即可')
+    } catch {
+      /* 用户取消分享：静默处理 */
+    }
+  }
+
+  // 开局信息页（需求 9.1）：只在「全新开的一局」显示一次。
+  // 计时从第一次操作才开始，所以先看一眼难度说明不会影响成绩。
+  const estimate = DIFFICULTY_META[puzzle.difficulty].estimatedMinutes
+  const showStartOverlay = showStartScreen && !startDismissed && !completed && !paused && !started && !loadError
+
   return (
     /* 锁一屏高度：棋盘可用空间由 flex 计算，装不下时由下面 <main> 滚动，见 .app-screen */
     <div className="app-screen flex min-h-0 flex-col">
@@ -247,7 +300,9 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
 
         <div className="flex min-w-0 items-center gap-1.5">
           <Pill>{`${meta.label} · ${puzzle.width}×${puzzle.height}`}</Pill>
-          <Pill tone={judgeMode === 'lenient' ? 'default' : judgeMode === 'strict' ? 'warn' : 'danger'}>{judgeLabel}</Pill>
+          <Pill tone={judgeMode === 'lenient' ? 'default' : judgeMode === 'strict' ? 'warn' : 'danger'}>
+            {judgeLabel}
+          </Pill>
         </div>
 
         <div className="ml-auto flex items-center gap-1.5">
@@ -268,14 +323,29 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
           <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} aria-label="设置">
             <IconSettings />
           </Button>
+          <Button variant="ghost" size="sm" onClick={() => navigate('/solver')} aria-label="自动解题">
+            <IconSolver />
+          </Button>
         </div>
 
         <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto">
-          <Button variant="secondary" size="sm" onClick={undo} disabled={past.length === 0 || completed} title="撤销 (Ctrl+Z)">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={undo}
+            disabled={past.length === 0 || completed}
+            title="撤销 (Ctrl+Z)"
+          >
             <IconUndo />
             <span className="hidden md:inline">撤销</span>
           </Button>
-          <Button variant="secondary" size="sm" onClick={redo} disabled={future.length === 0 || completed} title="重做 (Ctrl+Shift+Z)">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={redo}
+            disabled={future.length === 0 || completed}
+            title="重做 (Ctrl+Shift+Z)"
+          >
             <IconRedo />
             <span className="hidden md:inline">重做</span>
           </Button>
@@ -287,7 +357,13 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
             <IconCheck />
             <span className="hidden md:inline">检查</span>
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => setShowReset(true)} disabled={completed} title="重开本题">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowReset(true)}
+            disabled={completed}
+            title="重开本题"
+          >
             <IconRefresh />
             <span className="hidden md:inline">重置</span>
           </Button>
@@ -352,6 +428,28 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
             </Button>
           </div>
         ) : null}
+
+        {showStartOverlay ? (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 rounded-2xl bg-ink-50/95 p-4 text-center backdrop-blur-sm dark:bg-ink-950/95">
+            <Pill>
+              {meta.label} · {puzzle.width}×{puzzle.height}
+            </Pill>
+            <h2 className="text-base font-semibold text-ink-900 dark:text-white">准备好了吗？</h2>
+            <p className="text-xs text-ink-600 dark:text-ink-300">
+              预计用时 {estimate[0]}–{estimate[1]} 分钟
+              {typeof puzzle.score === 'number' ? ` · 难度 ${puzzle.score} / 100` : ''}
+            </p>
+            {puzzle.title ? <p className="text-xs text-ink-500 dark:text-ink-400">{puzzle.title}</p> : null}
+            <p className="max-w-xs text-[11px] leading-relaxed text-ink-400">
+              计时从第一次涂格开始，现在想看多久都不影响成绩。可以使用 {judgeLabel}
+              判定模式；点右上角「暂停」会遮住棋盘。
+            </p>
+            <Button variant="primary" onClick={() => setStartDismissed(true)}>
+              <IconPlay />
+              开始游戏
+            </Button>
+          </div>
+        ) : null}
       </main>
 
       <Modal
@@ -380,7 +478,11 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
         open={showShare}
         title="分享这道题"
         onClose={() => setShowShare(false)}
-        footer={<Button variant="primary" onClick={() => setShowShare(false)}>好</Button>}
+        footer={
+          <Button variant="primary" onClick={() => setShowShare(false)}>
+            好
+          </Button>
+        }
       >
         <p className="text-xs text-ink-500 dark:text-ink-400">
           链接内已包含图案与尺寸（位压缩 + base64url），对方打开即可开局，题面唯一解。
@@ -394,42 +496,77 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
         />
       </Modal>
 
+      {/* 完成结果页（需求 9.2）：不只是弹一句 Congratulations */}
       <Modal
         open={completed}
-        title="完成！🎉"
+        title="🎉 Puzzle Complete!"
         wide
+        onClose={() => navigate('/')}
         footer={
           <>
+            <Button onClick={onShareScore}>
+              <IconShare />
+              分享成绩
+            </Button>
             <Button onClick={() => navigate('/')}>返回首页</Button>
             <Button variant="primary" onClick={goNext}>
-              再来一局（{meta.label}）
+              再来一题（{meta.label}）
             </Button>
           </>
         }
       >
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Stat label="用时" value={formatDuration(elapsed)} />
+          <Stat label="用时" value={formatDuration(completedMs)} />
           <Stat label="错误" value={mistakes} />
           <Stat label="提示" value={hintsUsed} />
           <Stat label="难度" value={`${meta.label} ${puzzle.width}×${puzzle.height}`} />
         </div>
-        <p className="text-xs text-ink-500 dark:text-ink-400">
+
+        {newRecord ? (
+          <p className="flex items-center gap-1.5 text-sm font-medium text-amber-600 dark:text-amber-400">
+            <IconTrophy size={16} /> New Record! 刷新了本题最佳成绩
+          </p>
+        ) : best ? (
+          <p className="text-xs text-ink-500 dark:text-ink-400">本题最佳成绩：{formatDuration(best.timeMs)}</p>
+        ) : null}
+
+        {newNoHintRecord ? (
+          <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            <IconTrophy size={14} /> 同时也刷新了「零提示 · 未暂停」最佳成绩
+          </p>
+        ) : records?.bestNoHints ? (
+          <p className="text-xs text-ink-500 dark:text-ink-400">
+            零提示最佳：{formatDuration(records.bestNoHints.timeMs)}
+          </p>
+        ) : null}
+
+        {unlockedAchievements.length > 0 ? (
+          <div className="rounded-xl bg-amber-50 px-3 py-2 ring-1 ring-amber-200 dark:bg-amber-500/10 dark:ring-amber-500/25">
+            <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+              新解锁 {unlockedAchievements.length} 个成就
+            </p>
+            <p className="mt-0.5 text-xs text-amber-700/80 dark:text-amber-200/80">
+              {unlockedAchievements
+                .map((id) => achievementById(id))
+                .filter((def) => def !== null)
+                .map((def) => `${def.icon} ${def.name}`)
+                .join(' · ')}
+            </p>
+          </div>
+        ) : null}
+
+        <p className="text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
           {judgeMode === 'lenient'
             ? '宽松模式：没有即时判错，全靠你自己核对'
             : judgeMode === 'strict'
               ? '严格模式：涂错会立刻标红'
               : '极限模式：错误会永久留下红痕并累计 +10 秒罚时'}
           {hintsUsed > 0 ? ` · 提示 ${hintsUsed} 次（每次 +${HINT_PENALTY_MS / 1000}s）` : ''}
+          {pauseCount > 0 ? ' · 本局暂停过（不计入「零提示 · 未暂停」成绩）' : ''}
         </p>
-        {newRecord ? (
-          <p className="flex items-center gap-1.5 text-sm font-medium text-amber-600 dark:text-amber-400">
-            <IconTrophy size={16} /> 刷新了本题最佳成绩！
-          </p>
-        ) : best ? (
-          <p className="text-xs text-ink-500 dark:text-ink-400">本题最佳成绩：{formatDuration(best.timeMs)}</p>
-        ) : null}
-        <p className="text-xs text-ink-400">提示：方向键移动光标，空格涂黑，X 标记，Delete 清除。</p>
       </Modal>
+
+      <AchievementToast ids={unlockedAchievements} onDismiss={dismissAchievements} />
     </div>
   )
 }

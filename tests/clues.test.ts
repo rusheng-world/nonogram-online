@@ -30,11 +30,7 @@ describe('computeLineClues', () => {
 
 describe('computeClues', () => {
   it('同时算出行列线索', () => {
-    const solution = new Uint8Array([
-      1, 0, 1,
-      1, 1, 0,
-      0, 0, 1,
-    ])
+    const solution = new Uint8Array([1, 0, 1, 1, 1, 0, 0, 0, 1])
     const { rowClues, colClues } = computeClues(solution, 3, 3)
     expect(rowClues).toEqual([[1, 1], [2], [1]])
     expect(colClues).toEqual([[2], [1], [1, 1]])

@@ -29,7 +29,7 @@
  */
 
 import { UNKNOWN, FILLED, EMPTY } from './types'
-import type { Puzzle } from './types'
+import type { CellState, Puzzle } from './types'
 
 /** 供性能测量使用；在 Node 与浏览器中都存在 */
 const clock = (): number =>
@@ -262,8 +262,30 @@ export interface SolverContext {
   trail: number[]
   /** 可选的推理顺序日志：[index, value, ...] */
   log: number[] | null
+  /**
+   * 可选的逐格推理回调（「自动解题」页面的推理轨迹用）。
+   * 为 null 时每次确定格子只多一次判空，正常游戏侧求解不受影响。
+   */
+  record: DeductionHook | null
   stats: PropagateStats
 }
+
+/**
+ * 逐格推理回调：某个格子被**逻辑强制**为黑/白时触发一次。
+ *
+ * @param index 格子下标（行优先）
+ * @param value FILLED（必为黑）或 EMPTY（必为白）
+ * @param axis  该结论由行推理（row）还是列推理（col）得出
+ * @param line  行号 / 列号（0 基）
+ * @param clues 该行 / 该列的线索
+ */
+export type DeductionHook = (
+  index: number,
+  value: number,
+  axis: 'row' | 'col',
+  line: number,
+  clues: readonly number[],
+) => void
 
 export interface PropagateStats {
   rounds: number
@@ -281,6 +303,7 @@ export function createSolverContext(puzzle: Puzzle): SolverContext {
     line: new Uint8Array(maxLen),
     trail: [],
     log: null,
+    record: null,
     stats: { rounds: 0, deduced: 0 },
   }
 }
@@ -297,55 +320,78 @@ export function revert(board: Uint8Array, ctx: SolverContext, mark: number): voi
   trail.length = mark
 }
 
+/** 一轮传播的结果：有推进 / 到不动点 / 出现矛盾 */
+export type PropagateRoundResult =
+  | { kind: 'changed' }
+  | { kind: 'stable' }
+  | { kind: 'contradiction'; axis: 'row' | 'col'; line: number; clues: readonly number[] }
+
 /**
- * 行列约束传播到不动点。
+ * 跑**一轮**行列传播（先扫所有行，再扫所有列）。
+ *
+ * propagate() 会反复调用它直到不动点；「自动解题」页面则自己控制调用次数，
+ * 把「每一轮新确定下来的格子」记录成一步推理轨迹。
+ * 两条路径共用这一份实现，不存在第二套传播逻辑。
+ */
+export function propagateRound(ctx: SolverContext, board: Uint8Array, stats: PropagateStats): PropagateRoundResult {
+  const { width, height, ws, line, trail, log, record } = ctx
+  stats.rounds++
+  let changed = false
+
+  // 行
+  for (let y = 0; y < height; y++) {
+    const off = y * width
+    for (let x = 0; x < width; x++) line[x] = board[off + x]
+    const clues = ctx.rowClues[y]
+    const res = solveLine(clues, line, width, ws)
+    if (res.contradiction) return { kind: 'contradiction', axis: 'row', line: y, clues }
+    const out = ws.out
+    for (let x = 0; x < width; x++) {
+      const value = out[x]
+      if (value !== UNKNOWN && board[off + x] === UNKNOWN) {
+        board[off + x] = value
+        trail.push(off + x)
+        if (log) log.push(off + x, value)
+        if (record) record(off + x, value, 'row', y, clues)
+        stats.deduced++
+        changed = true
+      }
+    }
+  }
+
+  // 列
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) line[y] = board[y * width + x]
+    const clues = ctx.colClues[x]
+    const res = solveLine(clues, line, height, ws)
+    if (res.contradiction) return { kind: 'contradiction', axis: 'col', line: x, clues }
+    const out = ws.out
+    for (let y = 0; y < height; y++) {
+      const value = out[y]
+      if (value !== UNKNOWN && board[y * width + x] === UNKNOWN) {
+        board[y * width + x] = value
+        trail.push(y * width + x)
+        if (log) log.push(y * width + x, value)
+        if (record) record(y * width + x, value, 'col', x, clues)
+        stats.deduced++
+        changed = true
+      }
+    }
+  }
+
+  return changed ? { kind: 'changed' } : { kind: 'stable' }
+}
+
+/**
+ * 行列约束传播到不动点（= propagateRound 反复执行）。
  * @returns false 表示出现矛盾（该分支无解）
  */
 export function propagate(ctx: SolverContext, board: Uint8Array, stats?: PropagateStats): boolean {
-  const { width, height, ws, line, trail, log } = ctx
   const s = stats ?? ctx.stats
   for (;;) {
-    s.rounds++
-    let changed = false
-
-    // 行
-    for (let y = 0; y < height; y++) {
-      const off = y * width
-      for (let x = 0; x < width; x++) line[x] = board[off + x]
-      const res = solveLine(ctx.rowClues[y], line, width, ws)
-      if (res.contradiction) return false
-      const out = ws.out
-      for (let x = 0; x < width; x++) {
-        const value = out[x]
-        if (value !== UNKNOWN && board[off + x] === UNKNOWN) {
-          board[off + x] = value
-          trail.push(off + x)
-          if (log) log.push(off + x, value)
-          s.deduced++
-          changed = true
-        }
-      }
-    }
-
-    // 列
-    for (let x = 0; x < width; x++) {
-      for (let y = 0; y < height; y++) line[y] = board[y * width + x]
-      const res = solveLine(ctx.colClues[x], line, height, ws)
-      if (res.contradiction) return false
-      const out = ws.out
-      for (let y = 0; y < height; y++) {
-        const value = out[y]
-        if (value !== UNKNOWN && board[y * width + x] === UNKNOWN) {
-          board[y * width + x] = value
-          trail.push(y * width + x)
-          if (log) log.push(y * width + x, value)
-          s.deduced++
-          changed = true
-        }
-      }
-    }
-
-    if (!changed) return true
+    const round = propagateRound(ctx, board, s)
+    if (round.kind === 'contradiction') return false
+    if (round.kind === 'stable') return true
   }
 }
 
@@ -440,12 +486,14 @@ function budgetExceeded(limits: SearchLimits): boolean {
 }
 
 export interface SolveStats {
-  /** 尝试过的假设次数（含失败分支） —— 即“回溯次数” */
+  /** 尝试过的假设次数（含失败分支） —— 即"回溯次数" */
   guesses: number
   /** 落入矛盾的假设次数 */
   failedGuesses: number
   /** 得到解时所在的假设链深度（0 = 纯传播） */
   solutionDepth: number
+  /** 搜索过程中到达过的最大假设链深度 */
+  maxDepth: number
   /** 传播轮数（取搜索路径上的最大值） */
   rounds: number
   /** 传播过程中被确定的格子总数 */
@@ -455,34 +503,97 @@ export interface SolveStats {
 }
 
 function emptyStats(): SolveStats {
-  return { guesses: 0, failedGuesses: 0, solutionDepth: 0, rounds: 0, deduced: 0, nodes: 0, truncated: false }
+  return {
+    guesses: 0,
+    failedGuesses: 0,
+    solutionDepth: 0,
+    maxDepth: 0,
+    rounds: 0,
+    deduced: 0,
+    nodes: 0,
+    truncated: false,
+  }
 }
 
 export interface SolveOutcome {
   solution: Uint8Array | null
   stats: SolveStats
+  /** 被外部取消（AbortSignal）时为 true */
+  cancelled?: boolean
 }
 
 /**
  * 求出**一个**解，同时统计人类解题所需的推理成本。
  * 假设顺序固定（先黑后白）+ 固定启发式 ⇒ 同一谜题的指标完全可复现。
+ *
+ * 传入 `trace` 时会额外把「每一轮传播 / 每次假设 / 每次回退 / 矛盾」记成推理轨迹，
+ * 供「自动解题」页面逐步演示。记录逻辑与求解共用同一趟搜索，不会重复计算。
  */
-export function solveFirst(ctx: SolverContext, board: Uint8Array, limits: SearchLimits): SolveOutcome {
+export function solveFirst(
+  ctx: SolverContext,
+  board: Uint8Array,
+  limits: SearchLimits,
+  trace?: SolveTrace | null,
+): SolveOutcome {
   const stats = emptyStats()
   resetStats(ctx)
+  let cancelled = false
+  const limited = (): boolean => trace?.truncated === true
 
   const dfs = (depth: number): Uint8Array | null => {
+    if (trace?.signal?.aborted) {
+      cancelled = true
+      stats.truncated = true
+      return null
+    }
     if (budgetExceeded(limits)) {
       stats.truncated = true
       return null
     }
     limits.nodes++
     stats.nodes++
+    if (depth > stats.maxDepth) stats.maxDepth = depth
     const mark = ctx.trail.length
-    if (!propagate(ctx, board)) {
-      revert(board, ctx, mark)
-      return null
+
+    // 一轮一轮传播：每轮结束后记录一步（这样演示里能看到推理是"逐层收敛"的）
+    for (;;) {
+      const roundCells: SolveStepCell[] | null = trace && !limited() ? [] : null
+      if (roundCells) {
+        ctx.record = (index, value, axis, line, clues) => {
+          if (roundCells.length < MAX_CELLS_PER_STEP) {
+            roundCells.push({
+              index,
+              state: value === FILLED ? 'filled' : 'marked',
+              reason: reasonForCell(ctx.width, axis, line, clues, index, value),
+            })
+          }
+        }
+      }
+      const round = propagateRound(ctx, board, ctx.stats)
+      ctx.record = null
+
+      if (round.kind === 'contradiction') {
+        if (trace) {
+          trace.push({
+            type: 'contradiction',
+            depth,
+            description: `第 ${round.line + 1} ${round.axis === 'row' ? '行' : '列'}线索 [${round.clues.join(' ')}] 与已知格冲突，此路不通`,
+          })
+        }
+        revert(board, ctx, mark)
+        return null
+      }
+      if (roundCells && roundCells.length > 0) {
+        trace!.push({
+          type: 'propagate',
+          depth,
+          cells: roundCells,
+          description: `第 ${ctx.stats.rounds} 轮行列推理：新确定 ${roundCells.length} 格（${describeCells(roundCells)}）`,
+        })
+      }
+      if (round.kind === 'stable') break
     }
+
     if (ctx.stats.rounds > stats.rounds) stats.rounds = ctx.stats.rounds
     if (ctx.stats.deduced > stats.deduced) stats.deduced = ctx.stats.deduced
 
@@ -491,26 +602,44 @@ export function solveFirst(ctx: SolverContext, board: Uint8Array, limits: Search
       const solution = new Uint8Array(board.length)
       for (let i = 0; i < board.length; i++) solution[i] = board[i] === FILLED ? 1 : 0
       stats.solutionDepth = depth
+      trace?.push({ type: 'done', depth, description: '所有格子都已确定，得到一个完整解' })
       revert(board, ctx, mark)
       return solution
     }
 
     const cell = chooseBranchCell(ctx, board)
     for (const value of [FILLED, EMPTY]) {
+      const pos = positionText(ctx.width, cell, value)
       board[cell] = value
       ctx.trail.push(cell)
       stats.guesses++
+      trace?.push({
+        type: 'assume',
+        depth: depth + 1,
+        cells: [
+          {
+            index: cell,
+            state: value === FILLED ? 'filled' : 'marked',
+            reason: `线索推不动了，假设它为${value === FILLED ? '黑' : '白'}`,
+          },
+        ],
+        description: `推理停滞，尝试假设：${pos}`,
+      })
       const found = dfs(depth + 1)
       revert(board, ctx, mark)
       if (found) return found
-      if (!stats.truncated) stats.failedGuesses++
-      else return null
+      if (!stats.truncated) {
+        stats.failedGuesses++
+        trace?.push({ type: 'backtrack', depth: depth + 1, description: `假设「${pos}」导致矛盾，回退并换一种试法` })
+      } else {
+        return null
+      }
     }
     return null
   }
 
   const solution = dfs(0)
-  return { solution, stats }
+  return { solution, stats, cancelled }
 }
 
 export interface CountOutcome {
@@ -621,4 +750,277 @@ export function computeHint(puzzle: Puzzle, playerBoard: Uint8Array): Hint | nul
   const value = puzzle.solution[cell] ? FILLED : EMPTY
   void limits
   return { index: cell, value, isGuess: true }
+}
+
+// ---------------------------------------------------------------------------
+// 对外统一接口：SolveResult / SolveStep（「自动解题」页面用）
+// ---------------------------------------------------------------------------
+//
+// 上面的 propagate / solveFirst / countSolutions 是阶段 1 就有的引擎能力，
+// 游戏侧（难度评估、提示、生成器）一直在用，接口保持不变。
+// 这里只做两件事：
+//   1. 把同一趟搜索过程**记录**成人类可读的推理轨迹（SolveStep[]）；
+//   2. 把「找到解 + 数解 + 统计」打包成一个 SolveResult 返回。
+// 没有第二套求解逻辑 —— 轨迹来自 solveFirst 内部，唯一性来自 countSolutions。
+
+/** 一步推理的类型 */
+export type SolveStepType = 'propagate' | 'assume' | 'contradiction' | 'backtrack' | 'done'
+
+export interface SolveStepCell {
+  /** 格子下标（行优先） */
+  index: number
+  /**
+   * 该格被确定成什么。
+   * 注意：'marked' 表示"逻辑上必为白"（等价于游戏里画 X 的含义），
+   * 但自动解题页面按需求**不画 X**，只把它渲染成空白/淡色。
+   */
+  state: CellState
+  /** 人类可读的推导理由 */
+  reason: string
+}
+
+export interface SolveStep {
+  type: SolveStepType
+  /** 该步所处的假设链层级（0 = 纯传播得出的结论） */
+  depth: number
+  /** 本步**新确定**的格子（回退/矛盾步为空） */
+  cells?: SolveStepCell[]
+  description: string
+}
+
+export type SolveStatus = 'unique' | 'multiple' | 'none' | 'timeout' | 'unknown'
+
+export interface SolveResult {
+  status: SolveStatus
+  /** unique 时返回唯一解；multiple / unknown 时返回找到的第一个解 */
+  solution?: Uint8Array
+  /** multiple 时返回第二个解，用于对照展示 */
+  alternativeSolution?: Uint8Array
+  /** 在限制内数到的解的个数 */
+  solutionCount?: number
+  /** true 表示解的个数达到统计上限（即"至少这么多"） */
+  solutionCountCapped?: boolean
+  steps: SolveStep[]
+  /** true 表示推理轨迹因超出步数上限被截断 */
+  stepsTruncated?: boolean
+  stats: {
+    propagationRounds: number
+    backtrackCount: number
+    elapsedMs: number
+  }
+  /** 附加统计（界面上展开显示） */
+  details?: {
+    nodes: number
+    failedGuesses: number
+    deducedCells: number
+    maxDepth: number
+  }
+  /** status === 'none' 是的矛盾说明 */
+  contradiction?: string
+  /** 是否被调用方取消 */
+  cancelled?: boolean
+}
+
+/** 求解请求：只有尺寸与线索，不依赖 Puzzle / 存档 / 计时 */
+export interface SolvePuzzleRequest {
+  width: number
+  height: number
+  rowClues: readonly number[][]
+  colClues: readonly number[][]
+}
+
+/** 可取消信号：浏览器的 AbortSignal 结构上满足它（也便于测试里传一个假对象） */
+export interface CancelSignal {
+  readonly aborted: boolean
+}
+
+export interface SolvePuzzleOptions {
+  /** 解的个数统计上限（默认 10，超过即认为"多解"并标记 capped） */
+  maxSolutions?: number
+  /** 时间上限（毫秒），默认 10 秒 */
+  timeLimitMs?: number
+  /** 搜索节点上限 */
+  nodeLimit?: number
+  /** 中途取消 */
+  signal?: CancelSignal
+  /** 是否记录推理轨迹（默认 true；只要结论不要轨迹时关掉可省内存） */
+  recordSteps?: boolean
+  /** 推理轨迹的最大步数（默认 800，超出后只在结尾标记截断） */
+  maxSteps?: number
+}
+
+export const DEFAULT_SOLVE_TIME_LIMIT_MS = 10_000
+export const DEFAULT_SOLVE_NODE_LIMIT = 400_000
+export const DEFAULT_MAX_SOLUTIONS = 10
+export const DEFAULT_MAX_STEPS = 800
+
+/** 单步最多记录多少格（防止一步刷屏 + 控制内存） */
+const MAX_CELLS_PER_STEP = 300
+
+/** 推理轨迹收集器：带步数上限与取消信号 */
+export interface SolveTrace {
+  steps: SolveStep[]
+  maxSteps: number
+  truncated: boolean
+  signal?: CancelSignal
+  push(step: SolveStep): void
+}
+
+export function createTrace(maxSteps: number, signal?: CancelSignal): SolveTrace {
+  const steps: SolveStep[] = []
+  const trace: SolveTrace = {
+    steps,
+    maxSteps,
+    truncated: false,
+    signal,
+    push(step) {
+      // 超上限后不再记录（置 truncated 让调用方停止生成文案，省掉字符串开销）
+      if (steps.length >= maxSteps) {
+        trace.truncated = true
+        return
+      }
+      steps.push(step)
+    },
+  }
+  return trace
+}
+
+function reasonForCell(
+  width: number,
+  axis: 'row' | 'col',
+  line: number,
+  clues: readonly number[],
+  index: number,
+  value: number,
+): string {
+  const kind = value === FILLED ? '黑' : '白'
+  const clueText = `[${clues.join(' ')}]`
+  if (axis === 'row') return `第 ${line + 1} 行线索 ${clueText} ⇒ 第 ${(index % width) + 1} 格必为${kind}`
+  return `第 ${line + 1} 列线索 ${clueText} ⇒ 第 ${Math.floor(index / width) + 1} 格必为${kind}`
+}
+
+function positionText(width: number, index: number, value: number): string {
+  return `第 ${Math.floor(index / width) + 1} 行第 ${(index % width) + 1} 格为${value === FILLED ? '黑' : '白'}`
+}
+
+function describeCells(cells: readonly SolveStepCell[]): string {
+  let filled = 0
+  for (const cell of cells) if (cell.state === 'filled') filled++
+  const empty = cells.length - filled
+  if (empty === 0) return `全部为黑`
+  if (filled === 0) return `全部为白`
+  return `${filled} 格为黑、${empty} 格为白`
+}
+
+/**
+ * 「自动解题」的完整入口：输入尺寸 + 线索，输出结论 + 推理轨迹 + 统计。
+ *
+ * 流程：
+ *   阶段 1  solveFirst（带轨迹）—— 找第一个解，同时记录"人是怎么想出来的"；
+ *   阶段 2  countSolutions        —— 数解，判定唯一解 / 多解。
+ * 若阶段 1 纯行列传播就填满整盘（guesses === 0），由文件顶部的论证可知必然唯一解，
+ * 直接跳过阶段 2（与难度评估 analyzePuzzle 用的是同一条判据）。
+ */
+export function solvePuzzle(request: SolvePuzzleRequest, options: SolvePuzzleOptions = {}): SolveResult {
+  const t0 = clock()
+  const { width, height } = request
+  const size = width * height
+  const maxSolutions = Math.max(2, options.maxSolutions ?? DEFAULT_MAX_SOLUTIONS)
+  const timeLimitMs = options.timeLimitMs ?? DEFAULT_SOLVE_TIME_LIMIT_MS
+  const nodeLimit = options.nodeLimit ?? DEFAULT_SOLVE_NODE_LIMIT
+  const recordSteps = options.recordSteps !== false
+
+  // 求解只需要线索；solution 字段留空（引擎从不读它）
+  const puzzle: Puzzle = {
+    id: 'solver',
+    width,
+    height,
+    solution: new Uint8Array(size),
+    rowClues: request.rowClues as number[][],
+    colClues: request.colClues as number[][],
+    difficulty: 'medium',
+    seed: 'solver',
+  }
+
+  const trace = recordSteps ? createTrace(options.maxSteps ?? DEFAULT_MAX_STEPS, options.signal) : null
+  const limits = createLimits({ nodeLimit, timeLimitMs })
+  const first = solveFirst(createSolverContext(puzzle), createBoard(size), limits, trace)
+
+  const base = () => ({
+    steps: trace?.steps ?? [],
+    stepsTruncated: trace?.truncated ?? false,
+    stats: {
+      propagationRounds: first.stats.rounds,
+      backtrackCount: first.stats.guesses,
+      elapsedMs: Math.round(clock() - t0),
+    },
+    details: {
+      nodes: first.stats.nodes,
+      failedGuesses: first.stats.failedGuesses,
+      deducedCells: first.stats.deduced,
+      maxDepth: first.stats.maxDepth,
+    },
+  })
+
+  if (first.cancelled || options.signal?.aborted) {
+    return { ...base(), status: 'timeout', cancelled: true }
+  }
+
+  if (!first.solution) {
+    if (first.stats.truncated) {
+      return { ...base(), status: limits.timedOut ? 'timeout' : 'unknown' }
+    }
+    // 搜索空间被穷尽仍无解：挑一条最有说服力的矛盾说明（优先取不依赖假设的那条）
+    const atRoot = trace?.steps.filter((s) => s.type === 'contradiction' && s.depth === 0)
+    const anyContradiction = trace?.steps.find((s) => s.type === 'contradiction')
+    const best = atRoot && atRoot.length > 0 ? atRoot[atRoot.length - 1] : anyContradiction
+    return { ...base(), status: 'none', contradiction: best?.description }
+  }
+
+  // 纯传播即解出 ⇒ 唯一解（见文件顶部说明），不必再数解
+  if (first.stats.guesses === 0) {
+    return { ...base(), status: 'unique', solution: first.solution, solutionCount: 1, solutionCountCapped: false }
+  }
+
+  const remaining = Math.max(1, timeLimitMs - (clock() - t0))
+  const counted = countSolutions(
+    createSolverContext(puzzle),
+    createBoard(size),
+    maxSolutions,
+    createLimits({ nodeLimit, timeLimitMs: remaining }),
+  )
+
+  if (counted.truncated) {
+    // 已经数到 2 个以上 ⇒ 多解是确定结论；否则只能说"未能确认唯一性"
+    if (counted.count >= 2) {
+      return {
+        ...base(),
+        status: 'multiple',
+        solution: counted.solutions[0],
+        alternativeSolution: counted.solutions[1],
+        solutionCount: counted.count,
+        solutionCountCapped: true,
+      }
+    }
+    return { ...base(), status: 'unknown', solution: first.solution, solutionCount: counted.count || undefined }
+  }
+
+  if (counted.count <= 1) {
+    return {
+      ...base(),
+      status: counted.count === 1 ? 'unique' : 'none',
+      solution: counted.solutions[0],
+      solutionCount: counted.count,
+      solutionCountCapped: false,
+    }
+  }
+
+  return {
+    ...base(),
+    status: 'multiple',
+    solution: counted.solutions[0],
+    alternativeSolution: counted.solutions[1],
+    solutionCount: counted.count,
+    solutionCountCapped: counted.count >= maxSolutions,
+  }
 }

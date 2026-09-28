@@ -65,7 +65,9 @@ describe('solveLine（DP 单行推理）', () => {
       const known = cells.map(() => (rng() < 0.3 ? UNKNOWN : rng() < 0.5 ? FILLED : EMPTY))
       const clues = computeLineClues(cells)
 
-      const all = bruteForceLine(clues, n).filter((sol) => known.every((k, i) => k === UNKNOWN || (k === FILLED) === (sol[i] === 1)))
+      const all = bruteForceLine(clues, n).filter((sol) =>
+        known.every((k, i) => k === UNKNOWN || (k === FILLED) === (sol[i] === 1)),
+      )
       const ws = createLineWorkspace(Math.max(1, n))
       const res = solveLine(clues, Uint8Array.from(known), n, ws)
 
@@ -144,7 +146,12 @@ describe('唯一性判定', () => {
     expect(first.stats.guesses).toBe(0)
     expect(first.stats.solutionDepth).toBe(0)
 
-    const counter = countSolutions(createSolverContext(puzzle), createBoard(4), 2, createLimits({ nodeLimit: 5000, timeLimitMs: 500 }))
+    const counter = countSolutions(
+      createSolverContext(puzzle),
+      createBoard(4),
+      2,
+      createLimits({ nodeLimit: 5000, timeLimitMs: 500 }),
+    )
     expect(counter.count).toBe(1)
   })
 
@@ -152,7 +159,12 @@ describe('唯一性判定', () => {
     const puzzle = makePuzzle([1, 0, 0, 1], 2, 2)
     expect(puzzle.rowClues).toEqual([[1], [1]])
     expect(puzzle.colClues).toEqual([[1], [1]])
-    const counter = countSolutions(createSolverContext(puzzle), createBoard(4), 2, createLimits({ nodeLimit: 5000, timeLimitMs: 500 }))
+    const counter = countSolutions(
+      createSolverContext(puzzle),
+      createBoard(4),
+      2,
+      createLimits({ nodeLimit: 5000, timeLimitMs: 500 }),
+    )
     expect(counter.count).toBe(2)
     expect(counter.truncated).toBe(false)
   })
@@ -169,18 +181,33 @@ describe('唯一性判定', () => {
       difficulty: 'easy',
       seed: 'multi',
     }
-    const all = countSolutions(createSolverContext(puzzle), createBoard(9), 10, createLimits({ nodeLimit: 20_000, timeLimitMs: 1000 }))
+    const all = countSolutions(
+      createSolverContext(puzzle),
+      createBoard(9),
+      10,
+      createLimits({ nodeLimit: 20_000, timeLimitMs: 1000 }),
+    )
     expect(all.count).toBe(6)
     expect(all.truncated).toBe(false)
     // 找到第 2 个解就停：足够判定“多解”
-    const two = countSolutions(createSolverContext(puzzle), createBoard(9), 2, createLimits({ nodeLimit: 20_000, timeLimitMs: 1000 }))
+    const two = countSolutions(
+      createSolverContext(puzzle),
+      createBoard(9),
+      2,
+      createLimits({ nodeLimit: 20_000, timeLimitMs: 1000 }),
+    )
     expect(two.count).toBe(2)
   })
 
   it('无解棋盘返回 count = 0', () => {
     const puzzle = makePuzzle([1, 0, 1], 3, 1)
     puzzle.rowClues[0] = [3]
-    const counter = countSolutions(createSolverContext(puzzle), createBoard(3), 2, createLimits({ nodeLimit: 5000, timeLimitMs: 500 }))
+    const counter = countSolutions(
+      createSolverContext(puzzle),
+      createBoard(3),
+      2,
+      createLimits({ nodeLimit: 5000, timeLimitMs: 500 }),
+    )
     expect(counter.count).toBe(0)
   })
 })

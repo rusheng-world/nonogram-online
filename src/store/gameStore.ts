@@ -16,11 +16,17 @@ import type { JudgeMode, Puzzle } from '../core/types'
 import {
   clearProgress,
   encodeBoard,
+  loadDailyRecords,
+  loadHistory,
   pushHistory,
+  saveDailyRecord,
   saveProgress,
   submitRecord,
+  unlockAchievements,
   type StoredProgress,
 } from '../core/storage'
+import { achievementContext, evaluateAchievements } from '../core/achievements'
+import { utcDateKey } from '../core/dailyChallenge'
 import { useSettingsStore } from './settingsStore'
 
 /** 使用一次提示的时间惩罚 */
@@ -47,6 +53,7 @@ export interface RestoredGame {
   mistakes: number
   hintsUsed: number
   penaltyMs: number
+  pauseCount: number
 }
 
 interface GameStore {
@@ -68,6 +75,7 @@ interface GameStore {
   mistakes: number
   hintsUsed: number
   penaltyMs: number
+  pauseCount: number
   checks: number
 
   // 撤销 / 重做
@@ -80,19 +88,30 @@ interface GameStore {
   cursor: number
   notice: string | null
   newRecord: boolean
+  /** 本局是否刷新了「零提示」最佳成绩 */
+  newNoHintRecord: boolean
+  /** 本局新解锁的成就 id（用于结果页与弹窗） */
+  unlockedAchievements: string[]
 
   startPuzzle(puzzle: Puzzle, judgeMode: JudgeMode, restored?: RestoredGame | null): void
   restart(): void
   applyStroke(changes: StrokeChange[]): StrokeOutcome
   undo(): void
   redo(): void
-  useHint(): Hint | null
+  /**
+   * 揭示一格提示。
+   * 命名成 revealHint 而不是 useHint：它虽然返回提示信息，但**不是** React Hook，
+   * 叫 use* 会让 ESLint 的 rules-of-hooks 误判（组件里在事件回调中调用会直接报错）。
+   */
+  revealHint(): Hint | null
   check(): number
   setPaused(paused: boolean): void
   setHover(row: number, col: number): void
   setCursor(index: number): void
   setNotice(notice: string | null): void
   markWin(nowMs: number): void
+  /** 关闭「新解锁成就」的浮动提示 */
+  dismissAchievements(): void
 }
 
 export function elapsedOf(state: Pick<GameStore, 'accumulatedMs' | 'runningSince'>, now = Date.now()): number {
@@ -135,12 +154,14 @@ function persist(state: GameStore): void {
     height: puzzle.height,
     seed: puzzle.seed,
     title: puzzle.title,
+    source: puzzle.source,
     board: encodeBoard(state.board),
     solution: encodeBoard(puzzle.solution),
     elapsedMs: elapsedOf(state),
     mistakes: state.mistakes,
     hintsUsed: state.hintsUsed,
     penaltyMs: state.penaltyMs,
+    pauseCount: state.pauseCount,
     judgeMode: state.judgeMode,
     completed: state.completed,
     updatedAt: Date.now(),
@@ -164,6 +185,7 @@ export const useGameStore = create<GameStore>()((set, get) => ({
   mistakes: 0,
   hintsUsed: 0,
   penaltyMs: 0,
+  pauseCount: 0,
   checks: 0,
   past: [],
   future: [],
@@ -172,6 +194,8 @@ export const useGameStore = create<GameStore>()((set, get) => ({
   cursor: 0,
   notice: null,
   newRecord: false,
+  newNoHintRecord: false,
+  unlockedAchievements: [],
 
   startPuzzle(puzzle, judgeMode, restored) {
     const size = puzzle.width * puzzle.height
@@ -192,6 +216,7 @@ export const useGameStore = create<GameStore>()((set, get) => ({
       mistakes: restored?.mistakes ?? 0,
       hintsUsed: restored?.hintsUsed ?? 0,
       penaltyMs: restored?.penaltyMs ?? 0,
+      pauseCount: restored?.pauseCount ?? 0,
       checks: 0,
       past: [],
       future: [],
@@ -200,6 +225,8 @@ export const useGameStore = create<GameStore>()((set, get) => ({
       cursor: 0,
       notice: null,
       newRecord: false,
+      newNoHintRecord: false,
+      unlockedAchievements: [],
     })
   },
 
@@ -269,17 +296,23 @@ export const useGameStore = create<GameStore>()((set, get) => ({
 
   markWin(nowMs) {
     const state = get()
-    const { puzzle, mistakes, hintsUsed } = state
+    const { puzzle, mistakes, hintsUsed, judgeMode } = state
     if (!puzzle || state.completed) return
     const finalMs = elapsedOf(state, nowMs)
+    /** 本局是否暂停过：暂停过的成绩不能算「纯净成绩」（需求 29 的公平性要求） */
+    const paused = state.pauseCount > 0
     set({ completed: true, completedMs: finalMs, runningSince: null, paused: false })
 
-    const isRecord = submitRecord(puzzle.difficulty, puzzle.seed, {
+    const outcome = submitRecord(puzzle.difficulty, puzzle.seed, {
       timeMs: finalMs,
       mistakes,
       hintsUsed,
+      paused,
+      judgeMode,
       at: nowMs,
     })
+
+    const isDaily = puzzle.source === 'daily'
     pushHistory({
       puzzleId: puzzle.id,
       difficulty: puzzle.difficulty,
@@ -290,10 +323,38 @@ export const useGameStore = create<GameStore>()((set, get) => ({
       timeMs: finalMs,
       mistakes,
       hintsUsed,
+      paused,
+      judgeMode,
+      daily: isDaily,
       completedAt: nowMs,
     })
+
+    // 每日挑战要单独留一份记录：统计页的「连续天数」和每日挑战成就都只看它
+    if (isDaily) {
+      saveDailyRecord({
+        date: utcDateKey(new Date(nowMs)),
+        seed: puzzle.seed,
+        difficulty: puzzle.difficulty,
+        width: puzzle.width,
+        height: puzzle.height,
+        timeMs: finalMs,
+        mistakes,
+        hintsUsed,
+        paused,
+        completedAt: nowMs,
+      })
+    }
+
+    // 成就从「累计数据」推导，再把本次新达成的写进存档（必须在 daily 记录之后算）
+    const fresh = unlockAchievements(evaluateAchievements(achievementContext(loadHistory(), loadDailyRecords())))
+
     clearProgress()
-    set({ newRecord: isRecord, notice: null })
+    set({
+      newRecord: outcome.isBest,
+      newNoHintRecord: outcome.isBestNoHints,
+      unlockedAchievements: fresh,
+      notice: null,
+    })
   },
 
   undo() {
@@ -326,7 +387,7 @@ export const useGameStore = create<GameStore>()((set, get) => ({
     persist({ ...state, ...next })
   },
 
-  useHint() {
+  revealHint() {
     const state = get()
     const { puzzle, board, completed } = state
     if (!puzzle || completed) return null
@@ -400,6 +461,8 @@ export const useGameStore = create<GameStore>()((set, get) => ({
         paused: true,
         accumulatedMs: elapsedOf(state, now),
         runningSince: null,
+        // 暂停次数用于区分「纯净成绩」：暂停过就不算零暂停通关
+        pauseCount: state.pauseCount + 1,
       })
     } else {
       set({ paused: false, runningSince: state.started ? now : state.runningSince })
@@ -419,5 +482,10 @@ export const useGameStore = create<GameStore>()((set, get) => ({
 
   setNotice(notice) {
     set({ notice })
+  },
+
+  dismissAchievements() {
+    if (get().unlockedAchievements.length === 0) return
+    set({ unlockedAchievements: [] })
   },
 }))

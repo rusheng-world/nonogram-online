@@ -30,6 +30,9 @@ jobs:
         # 避免「workflow 里写 9、package.json 里写 11」导致的
         # "Multiple versions of pnpm specified" 报错（已实测踩过）。
       - run: pnpm install --frozen-lockfile
+      # 部署前重复跑一遍质量门禁，避免「测试挂了但页面照发」
+      - run: pnpm lint
+      - run: pnpm test
       - run: pnpm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

@@ -12,7 +12,14 @@ interface ClueStripProps {
 }
 
 /** 顶部：列线索（竖向排列，底部对齐） */
-export const ColumnClues = memo(function ColumnClues({ clues, cell, numFont, clueLine, progress, active }: ClueStripProps) {
+export const ColumnClues = memo(function ColumnClues({
+  clues,
+  cell,
+  numFont,
+  clueLine,
+  progress,
+  active,
+}: ClueStripProps) {
   return (
     <div className="flex" aria-hidden="true">
       {clues.map((clue, x) => (
@@ -39,7 +46,13 @@ export const ColumnClues = memo(function ColumnClues({ clues, cell, numFont, clu
 })
 
 /** 左侧：行线索（横向排列，右对齐） */
-export const RowClues = memo(function RowClues({ clues, cell, numFont, progress, active }: Omit<ClueStripProps, 'clueLine'>) {
+export const RowClues = memo(function RowClues({
+  clues,
+  cell,
+  numFont,
+  progress,
+  active,
+}: Omit<ClueStripProps, 'clueLine'>) {
   return (
     <div className="flex flex-col" aria-hidden="true">
       {clues.map((clue, y) => (

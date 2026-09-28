@@ -243,7 +243,11 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
   undo() {
     const { past, grid } = get()
     if (past.length === 0) return
-    set({ grid: past[past.length - 1], past: past.slice(0, -1), future: [grid, ...get().future].slice(0, HISTORY_LIMIT) })
+    set({
+      grid: past[past.length - 1],
+      past: past.slice(0, -1),
+      future: [grid, ...get().future].slice(0, HISTORY_LIMIT),
+    })
   },
 
   redo() {

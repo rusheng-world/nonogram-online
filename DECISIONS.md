@@ -454,6 +454,64 @@
 - **文档单一来源**：删掉 `outputs/README.md`、`outputs/DECISIONS.md` 两份陈旧副本（内容与主线重复，
   且仍含「纯前端」「MIT 开源」等已废弃表述），仓库里只保留根目录的一份。
 
+### D37. 求解器扩成 `SolveResult`，但旧接口一个都不动（本轮）
+
+需求明确要求自动解题**复用阶段 1 的求解器**，而演示推理又需要「完整解 + 推理轨迹 + 统计」。
+做法是**加接口、不改旧接口**：
+
+- `SolverContext` 新增可选的 `record` 回调（默认 `null`）。游戏侧的调用点一行没改，
+  不传 `record` 时连数组都不创建，热路径零开销。
+- `solveFirst(ctx, board, limits, trace?)` 多了第 4 个可选参数；`trace` 存在时才记录
+  `propagate / assume / contradiction / backtrack / done` 五类步骤。
+- 新增 `solvePuzzle(request, options)` 作为 solver 页面的唯一入口：内部把线索拼成一个临时 `Puzzle`
+  （`solution` 留空，引擎本来就不读它），然后跑 `solveFirst`；`guesses === 0` 直接判 `unique`
+  （与 `analyzePuzzle` 同一个判据），否则用 `countSolutions` 数解（上限 10）。
+- **只保留一份传播实现**：把原来的 `propagate()` 拆成 `propagateRound()`（跑一轮、返回是否推进 / 是否矛盾），
+  `propagate()` 变成「反复调 `propagateRound` 到不动点」。求解与演示共用同一段代码，
+  杜绝「求解器算出来的结果和页面上演示的步骤对不上」这类经典 bug。
+
+回归证据：`solver.test.ts` 全部原样通过（DP 与暴力枚举 3000 条线比对那条也在），
+游戏侧代码零改动。
+
+### D38. 轨迹里的 `'marked'` 表示「逻辑必为白」，但棋盘上不画 X（本轮）
+
+- 需求 9.5 写明答案棋盘「不显示 X 标记」。但推理内部分成三态（未知 / 黑 / 白）才能表达
+  「这一步推导出某格一定是白的」——否则回放时那格会退回「未知」，下一步又被重新推导一遍，轨迹会乱。
+- 所以 `SolveStep.cells` 沿用 `CellState`（`empty | filled | marked`），
+  `SolverGrid` 渲染时**只区分黑与白**（`marked` 画成空格），既符合需求的观感，
+  又让每一步的推演保持单调、可回放。
+- 多解题目禁用「用此题开始游戏」：多解无法做正误判定，开局只会让玩家莫名其妙地判错。
+
+### D39. 大尺寸求解走 Web Worker，取消 = `terminate()`（本轮）
+
+- `src/workers/solver.worker.ts` 直接 `import { solvePuzzle }`，**与主线程共用同一份求解器代码**，
+  没有第二份实现。
+- 取消策略：Worker 里跑的是同步循环、收不到消息，所以 `cancel()` 直接 `worker.terminate()`
+  （Worker 很轻，下一次求解重新建一个）。环境不支持 Worker 时退化成主线程 + `signal`，
+  此时「取消」只能在算完后生效，界面上会明说。
+- 阈值 `LARGE_BOARD_SIZE = 30`（对应需求 9.8 的 30×30 门槛）用于给出提示文案；
+  实际实现是**小棋盘也走 Worker**——启动开销只有几毫秒，换来「点了取消就真的立刻停」。
+- 切换尺寸 / 修改线索时会先把正在跑的任务取消掉（用递增的 run id 做守卫），
+  避免旧结果回来覆盖新状态。
+
+### D40. 线索输入的解析与校验规则（本轮）
+
+- **分隔符尽量宽松**：空格、半角逗号 `,`、全角逗号 `，`、顿号 `、`、分号、竖线都接受。
+  中文输入法下最容易打出的就是全角逗号和顿号，只认半角会让「复制别人的线索」变成苦差事。
+- **`0` 等价于空**：从游戏里抄线索时，空行/空列常常被写成 `0`；接受它比报错更好用。
+- **必然无解的情况放在校验阶段拦下**：行列线索总和不等 → 直接提示「行/列总数不匹配，这样的题目一定无解」，
+  不让求解器白跑一趟；`Σ + 个数 − 1 > 长度`（放不进）与「线索条数 ≠ 尺寸」同理，并定位到具体某一行/列。
+- **「填示例」必须是好例子**：内置的 5×5 样例由单测断言「校验通过 + 唯一解」，避免用户第一次点就撞见坏数据。
+
+### D41. 自动解题与游戏数据彻底解耦，版本升到 1.1.0（本轮）
+
+- 求解历史单独用 `nonogram-solver-history-v1` 这个 key（最多 10 条，读取时做 sanitize），
+  不碰 `gameStore` 的进度 / 最佳成绩 / 历史成绩；在 solver 页面上算题**不会**产生任何游戏记录。
+- 「用此题开始游戏」把线索打包成自定义谜题（无生成种子、来源标自定义），跳转时清空旧进度；
+  多解题目不提供入口。
+- 本轮是**实质性功能增加**（新增一整个页面 + 求解器接口扩展 + Worker + 导出 + 历史），
+  按 D35 的规则递增第二位：`1.0.1 → 1.1.0`。
+
 ---
 ## 二、分阶段实现说明
 
@@ -535,6 +593,22 @@
 | E. README 重写 | 重写为 10 个章节（635 行）：在线试玩 + 项目信息表 + 版本规则 + 本地运行 + 分享与部署 + 功能一览 + 技术选型 + 目录结构 + 核心算法 + 测试 + 已知限制；删掉全部修改史 | 通读全文；`rg "本轮|第三轮|第四轮|第五轮"` 确认只剩算法语境（如「本轮确定的格子数」） | 无 |
 | F. 文档清理 | `git rm` 掉 `outputs/README.md`、`outputs/DECISIONS.md` 两份陈旧副本 | `git ls-files outputs` 返回空 | 无 |
 | G. 发布 1.0.1 | 提交 + `git tag -a v1.0.1` + 推送；改仓库描述；发 GitHub Release | `gh run list` 看部署结论；线上打开首页与 `#/settings` 复核文案与链接 | 无 |
+
+### 第七轮（本轮）改动
+
+需求：新增独立的「自动解题（Solver Playground）」页面（`#/solver`），复用阶段 1 的求解器，
+支持表单 / 文本两种输入、求解前校验、唯一解 / 多解 / 无解 / 超时四种结果、
+推理轨迹逐步演示、大尺寸 Web Worker + 取消、最近 10 次历史、与游戏联动。
+
+| 阶段 | 做了什么 | 怎么验证 | 遗留问题 |
+| --- | --- | --- | --- |
+| A. 求解器接口扩展 | 新增 `SolveResult` / `SolveStep` / `solvePuzzle` / `propagateRound` / 可选 trace；旧导出（`solveFirst` / `countSolutions` / `analyzePuzzle` / `propagate`）签名一律不变 | `pnpm test` 9 文件 / 102 用例全绿；`solver.test.ts`（含 DP 与暴力枚举 3000 条线逐一比对）原样通过 | 无 |
+| B. 页面与输入 | `SolverPage` + `#/solver` 路由；表单（5×5 ~ 50×50，动态 N + M 输入框）与文本批量（一行一条 / `rows:`+`cols:` 整段粘贴）；`solverInput.ts` 负责解析与校验 | 浏览器实测：填示例→「校验通过」；混用全角逗号 / 顿号 / 空格可解析；总数不匹配、放不进、条数不一致都会禁用按钮并给出定位提示 | 无 |
+| C. 结果展示 | 四种状态卡（唯一解绿 / 多解黄 + 并排两解 + 红框差异格 / 无解红 + 指出矛盾行列 / 超时橙）+ 统计数据 | 浏览器实测四种状态：5×5 样例唯一解、5×5 全 `[1]` 多解（差异 4 格）、5×5 全 `[4]` 无解（指出「第 2 列线索 [4]」）、40×40 长算可取消 | 无 |
+| D. 推理演示 | `solverSteps.ts` 假设分层折叠回放 + `SolverStepPlayer`（上一步 / 下一步 / 播放 / 暂停 / 进度条 / 三档速度；assume 与 backtrack 不同色；>500 步只留关键节点） | 浏览器实测逐步播放 5×5 样例：第 1 / 2 步为 propagate（「新确定 21 格」→「新确定 4 格」），第 3 步 done；单测断言带假设的题折叠后与正确答案逐格一致 | 无 |
+| E. 大尺寸与取消 | `solverClient.ts` + `workers/solver.worker.ts`（**共用同一份 solver.ts**）；>20×20 提示走后台线程；超时 5 / 10 / 20 s 可选；改参数自动取消旧任务 | 浏览器实测 40×40（行/列总数 867）：按钮变「求解中…」+「取消」+「已耗时 0.7s」，输入框 / 标签 / 滚动全程可交互，点「取消」立刻回到可求解状态 | 未在真机移动端验证 Worker 行为 |
+| F. 导出 / 历史 / 联动 | `boardImage.ts` 导出 PNG（纯 Canvas）；`solverHistory.ts` 最近 10 条 + 清空；「用此题开始游戏」跳转并清空旧进度 | 新增 `boardImage.test.ts`（5 例）覆盖导出；浏览器实测历史「填入」/「清空历史」；点开始游戏跳 `#/play?s=…`，游戏页线索 `3 5 5 3 1` / `2 4 5 4 2` 与原输入一致 | 浏览器无法观测下载，导出只做了单测 |
+| G. 文档与版本 | README 新增「九、自动解题」整章并更新目录 / 测试 / 已知限制；本文件补 D37 ~ D41；版本升到 **1.1.0** | 通读全文；`pnpm run build` 通过（82 modules，JS 276.07 kB / gzip 93.23 kB、CSS 30.40 kB、`solver.worker` 8.71 kB） | **按用户要求本轮只做本地测试，不推送 GitHub** |
 
 ## 三、验收标准逐条自测
 
@@ -647,6 +721,30 @@
 | R5 | 修复设置页开关白色圆钮错位 | 通过 | 根因 = `button` 默认居中导致 `absolute` 白钮未定位（D34）。修后实测轨道 `44×24`、白钮 `x=22 / y=2 / 20×20`，右边缘 42 ≤ 44，开/关两态均在轨道内 |
 | R6 | 版本改为 1.0.1 并确立版本号规则 | 通过 | `src/project.ts` 的 `APP_VERSION = '1.0.1'`、`package.json` 的 `version = 1.0.1`、设置页读取同一常量；规则「第三位修 bug / 第二位加功能」写进 `src/project.ts` 注释、README 与 D35 |
 
+### 第七轮（本轮）需求的验收
+
+环境：Windows 11 · Node 24 · pnpm 11.19.0 · Codex 内置浏览器（iab，Chrome 内核），
+本地用 `vite preview` 起静态产物（`http://localhost:4190`）。命令：`pnpm test`、`pnpm run build`。
+
+| # | 本轮需求（9.10 验收标准） | 结果 | 证据 |
+| --- | --- | --- | --- |
+| R1 | 求解器改造后原有游戏功能全部回归通过，`npm run test` 全绿 | 通过 | 9 个文件 / **102 个用例全绿**；`solver.test.ts` / `progress.test.ts` / `acceptance.test.ts` 等既有测试一行没改仍然通过；浏览器回归：游戏页点格 → 「已填 1 / 17」、撤销 → 回到「已填 0 / 17」 |
+| R2 | 新增用例：唯一解 / 多解 / 无解各 ≥3 例；总数不匹配被拦；空行 / 全满行 / 1×N 极端输入 | 通过 | `solverPlayground.test.ts` 共 27 例。唯一解：四档各一题 + 手写 3×3；多解：2×2 / 3×3 / 5×5 全 `[1]`（3×3 数得清 6 个、5×5 触顶 10）；无解：3×3 / 4×4 / 5×5 全 `[n-1]`；总数不匹配 1 例被校验拦下；极端输入覆盖 1×N、全满行、全空行 |
+| R3 | 从某游戏谜题抄下线索输入 solver，结果与游戏原题 `solution` 完全一致 | 通过 | 单测「抄下来的线索喂给 solver……（四档各一题）」逐格断言相等；浏览器另做反向验证：solver 唯一解 →「用此题开始游戏」→ 游戏页线索与 solver 输入一致 |
+| R4 | 多解场景确实展示两个不同的解，差异格高亮正确 | 通过 | 5×5 全 `[1]`：显示「解 1（差异 4 格）/ 解 2（差异 4 格）」，两盘仅在最后两行 × 最后两列交叉处的 4 格不同，红框恰好落在这 4 格；单测断言两解 `solution` 不相等 |
+| R5 | 40×40 复杂线索 UI 不卡死，可正常取消 | 通过 | 40×40（行 / 列线索总和均为 867）实测：点「开始求解」后按钮变「求解中…」，旁边是「取消」与「已耗时 0.7s」；期间填框、切标签、滚动都正常，点「取消」立即回到可求解状态（该题在 1.5 s 预算下会超时，说明计算量确实很大） |
+| R6 | 逐步演示能完整播放一个简单谜题的推理过程，文案可读 | 通过 | 5×5 样例共 3 步：①「第 1 轮行列推理：新确定 21 格（15 格为黑、6 格为白）」②「第 2 轮行列推理：新确定 4 格（2 格为黑、2 格为白）」③「所有格子都已确定，得到一个完整解」；上一步 / 下一步 / 进度条 / 速度按钮的可用状态与步骤同步 |
+| R7 | 「用此题开始游戏」跳转后，游戏页线索与 solver 输入一致 | 通过 | 点按后跳到 `#/play?s=v1.5.5.e.d_7iAA`，游戏页顶部「简单 · 5×5」，线索条为列 `2 4 5 4 2`、行 `3 5 5 3 1`，与 solver 输入逐条一致；计数「已填 0 / 17」说明旧进度已清空 |
+
+#### 额外自测（需求里提到但不在 9.10 清单）
+
+- **375px 无横向滚动**：solver 页在 375×812 视口下 `documentElement.scrollWidth === clientWidth`（均为 360），单列布局完整可操作。
+- **与游戏数据解耦**：在 solver 里连算 4 题之后回首页，「历史成绩」仍是 0 条、最佳成绩仍是 0 个；
+  求解历史只存在 `nonogram-solver-history-v1`。
+- **控制台干净**：从「填示例」到「求解 → 演示 → 取消 → 清空历史 → 开始游戏」整条链路 `dev.logs()` 无 error / warning。
+- **「开始求解」按钮的禁用逻辑**：5 种非法输入（非数字、放不进、总数不匹配、条数不一致、尺寸越界）实测按钮均禁用且给出原因。
+- **键 `?s=` 分享码兼容**：由 solver 生成的题目走的是既有的自定义谜题编码，刷新后线索不变。
+
 ## 四、已知限制（与 README 一致）
 
 1. 难度分级是启发式的：指标 = 固定假设顺序与启发式下解题所需的推理成本，不等价于人类直觉难度。
@@ -664,3 +762,140 @@
 12. **退化线是「尽量消除」而不是数学保证**：简单 / 中等档允许残留 1 条（小盘面天然容易出，也算给新手的提示），
     只有在前面的候选全部失败时才会走到的极端兜底图案（隔行全填，唯一性优先）仍可能含退化线 ——
     实测四档各 20~60 题都没有触发过。
+13. 自动解题的**无解定位是「最早矛盾处」**，不是语义级的「你抄错了哪个数字」；求解器一发现冲突就返回。
+14. 自动解题的**多解对照只给两个解**：解数超过上限（10）时只标「至少 10 个解」，不穷举（最坏是指数级）。
+15. 自动解题的**推理轨迹有步数上限**（默认 800 步）：极端难的大盘面可能中途停下并标 `unknown`，
+    此时不给出结论，调大超时上限或换更小的尺寸即可。
+16. **自动解题页面刻意不写入任何游戏记录**：所以在这里算的题不会出现在「历史成绩」里，也不影响最佳成绩；
+    想让一局计入成绩，只能走「用此题开始游戏」。
+
+---
+
+## 五、第八轮：产品化（P0 / P1）+ 自动解答复核 + 发版 1.1.0
+
+本轮任务来自外部产品化清单（代码审查 / README 产品化 / 工程质量 / 产品级功能 / 移动端 / 无障碍 / SEO / 版本体系），外加一项「检查自动解答有无未发现的 bug」。按清单的 `P0 / P1 / P2` 优先级执行，`P2` 里只做了「题目质量验证 CLI」，`PWA` 与 `Playwright E2E` 明确不做（见 D42）。
+
+### D42. 不做 PWA、不引入 Playwright：如实写在 README 的「已知限制」里（本轮）
+
+- **决定**：不新增 service worker / manifest，也不引入 Playwright。README 明确写「无 PWA / 离线能力」「未引入 E2E 自动化测试」。
+- **理由**：清单把这两项列为 `P2 —— 有余力再做`，并反复强调「不要为数字 / 复杂度引入依赖」「不要伪造功能」。加 PWA 会引入缓存失效这个长期维护面，加 Playwright 会引入浏览器下载与不稳定用例；在「体验完整、可长期维护」这个目标下，收益小于成本。与其做一个半成品功能再写进 README，不如诚实标注未做。
+
+### D43. README 重写为「产品型文档」，性能数字只用实测值（本轮）
+
+- **决定**：README 换成「一句话介绍 + 徽章 + 在线链接 + 截图 + Features/Modes/Generation/Mobile/Save&Share/Tech/Development/Testing/Structure/Algorithm/Deployment/Limitations/Contributing/License」结构。中文定位统一为「**在线数织游戏**」。AI 辅助只在末尾 `Development Notes` 提一句。不宣传 MIT（仅保留一行 License 指向 `LICENSE`）。
+- **性能数字来源**：全部来自本轮实际执行 `pnpm puzzle:qa --count=20` 的输出（简单 0.4 ms / 中等 8.7 ms / 困难 158.2 ms / 专家 1.3 ms），并注明是「本机单次测量，不是跨设备基准」。困难档补充了测试里另一批种子实测的 233 ms / 最慢 0.65 s，说明波动区间。
+- **测试数量**：写「178 个用例 / 14 个测试文件」，与本轮 `pnpm test` 实际输出一致。
+- **理由**：清单第 33 / 34 条要求「README 与代码一致」「不虚构性能数据」，所以每个数字都对应一次真实运行。
+
+### D44. 难度评分在文档里明确为启发式指标（本轮）
+
+- **决定**：代码里保留 `solverDifficultyScore` 命名；README 用引用块写明「衡量的是程序求解成本，是启发式指标，不等同于人类体感」。
+- **理由**：清单第 11 条要求「不要假装它是经过用户实验验证的科学指标」。同时保留界面上的「预计用时」，但也标注仅供参考。
+
+### D45. 每日挑战用 UTC 日期派生种子（本轮）
+
+- **决定**：`dateKey` 取 UTC 的 `YYYY-MM-DD`，种子固定为 `daily-<dateKey>`，难度 / 尺寸由日期确定性推导；页面每 60 秒重取一次「今天是哪天」，跨 UTC 零点自动换题。
+- **理由**：本地时区会让不同地区玩家在不同时刻换题，UTC 口径能保证「同一天全球同题」且无需服务器；代价是换题时刻对东八区玩家是早上 8 点，属于可接受的取舍（清单第 6 条建议优先 UTC）。
+
+### D46. 成就与统计「现算」，不额外维护聚合表（本轮）
+
+- **决定**：统计页进入时一次性读完「记录 + 历史 + 每日记录」并聚合；成就进度由 `achievements.ts` 的纯函数按同一份数据推进。
+- **理由**：数据量小（历史上限 200 条），现算不会「统计与明细对不上」；避免再引入一份需要保持一致性的持久化聚合状态。代价是每次进页面重算一次，可忽略。
+
+### D47. 最佳成绩区分「不限条件」与「零提示」（本轮）
+
+- **决定**：`PuzzleRecords` 同时保存 `best`（不限条件）与 `bestNoHints`（零提示），结果页优先展示对应项。
+- **理由**：清单第 29 条「不要破坏游戏公平性」——用大量提示刷出的时间不能和无提示成绩混为一谈。存储层测试专门覆盖了「两者互不污染」。
+
+### D48. Storage 统一信封 + schema 版本 + 迁移 + 降级（本轮）
+
+- **决定**：所有读写走 `readStored / writeStored / removeStored`，写入带 `{ version, data }` 信封；`migrateStorage()` 在 `main.tsx` 渲染前执行；localStorage 全抛异常时降级到内存 Map。
+- **理由**：清单第 21 条。加信封后未来改结构可以按版本迁移，不会让旧存档直接崩。`clearAllData()` 也顺带补齐了漏掉的自动解题历史键。
+
+### D49. 自动解答（Solver Playground）复核结论：未发现新 bug（本轮）
+
+- **复核范围**：`solver.ts`（`solvePuzzle / solveFirst / countSolutions / computeHint / chooseBranchCell / budgetExceeded`）、`solverSteps.ts`（轨迹折叠 / 回退）、`solverClient.ts`（worker 取消后 `terminate` + `settled` 防重入）、`solverInput.ts`（解析与校验）、`SolverPage.tsx`（`requestKey` 变更自动取消、`handleRef` 防竞态）。
+- **结论**：**没有发现新的功能性 bug**。唯一确认的缺陷是上一轮遗留的 `gameStore.useHint` 违反 rules-of-hooks（本轮已改名 `revealHint`）。复核中顺带发现并修掉的三个真实问题（属于本轮新查出的存量缺陷，与 solver 页面本身无关）：
+  1. `EditorPage` / `SolverPage` 生成的谜题经「编码 → 解码」往返后丢 `seed` / `source`，导致成绩按 `difficulty:seed` 分组时互相覆盖（solver 侧 `seed` 甚至是空串，所有自动解题题目共用一条记录）。
+  2. `statistics.computeStatistics` 的平均用时把未计时（`timeMs === 0`）的对局也算进去。
+  3. `storage.clearAllData` 漏清 `nonogram-solver-history-v1`。
+- **验证方式**：`tests/solverPlayground.test.ts` + `tests/storage.test.ts` 新增用例；并人工从游戏谜题抄线索进 solver，结果与游戏原题 `solution` 完全一致（见下方验收）。
+
+### D50. 本轮验收：lint 从 16 条 warning 收敛到 8 条，且全部是 `react-hooks/set-state-in-effect`
+
+- **决定**：清理可安全修复的 warning（HomePage 的 `useMemo` 传函数引用、SolverPage 线索数组缺 `useMemo`、StatsPage 三处无用依赖、GameBoard 在 render 期写 ref、EditorPage 导出非组件触发 fast-refresh 告警）。剩余 8 条：7 条是 React Compiler 的 `set-state-in-effect` 建议（「从 props/外部同步 state」的既有写法，改动风险大于收益），1 条是 `GamePage` 里「完成后重读最佳成绩」的有意依赖。
+- **理由**：`pnpm lint` 的要求是 0 error（已满足）。剩下这些规则的改写需要动到状态派生结构，属于「为让 lint 好看而重构」，与清单第 10 / 38 条「不要过度重构」冲突，因此保留并在 `eslint.config.js` 里说明为 warn。
+
+### D51. 修掉一个真实的 flaky 测试：把墙钟从「难度判定」里排除出去（本轮）
+
+- **现象**：`pnpm test` 全绿，但 `pnpm test:coverage` 会偶发失败 ——
+  `medium 难度达标率: expected 19 to be 20`、`perf-hard-15-1 未达到困难档`。
+- **根因**：生成器用墙钟预算（`timeBudgetMs`）来兜底"别把主线程卡死"，而候选搜索的**循环**
+  也会被这个预算打断。于是"同一 seed 生成什么题"变成了"这台机器跑多快"的函数：
+  覆盖率插桩、CI 抢占 CPU、后台有别的进程时都会让搜索提前收工，返回一道没达标的降级题。
+- **修法**：
+  1. 新增 `UNLIMITED_TIME_BUDGET_MS`（= `Infinity`）并导出。传它时墙钟完全不参与决策，
+     候选搜索只受 `maxAttempts` 约束，"同一 seed 同一道题"重新变成确定性结论。
+  2. 质量断言（唯一解 / 难度达标）统一改用不限时预算；性能断言不再拿"实测墙钟 < X ms"当门禁，
+     只保留"没有卡死"的兜底上限。实测耗时继续打印出来当作性能证据。
+  3. 新增回归用例：不限时预算下同一 seed 连续生成 3 次，`id` / 图案 / 达标结论 / 难度分必须完全一致。
+- **为什么不动生产路径**：有限预算换来的是"慢设备上不会长时间卡住"，这是产品要求；
+  而"跨设备可复现"由 `createNewGame` 生成后再 `regenerateFromId` 比对一次来兜底
+  （不一致就回退到同尺寸最接近目标的题并如实提示）。两者取舍见 D49。
+- **验证**：连续跑两次 `pnpm test:coverage` 均 178/178 通过。
+
+### D52. 补上 `src/store` 与 `src/game` 的测试（本轮）
+
+- **决定**：新增两个测试文件，把这两层从 0% 覆盖拉到 `gameStore.ts` 95.3%、`src/game/` 98.1%。
+  - `tests/gameStore.test.ts`（23 例）：填充 / 标记 / 拖拽语义、撤销重做的 200 步上限、
+    三档判定（宽松不标红、严格即时标红且错误计数不清零、极限永久标红 + 10s 罚时且撤销擦不掉）、
+    提示（揭格与答案一致、次数与罚时、关掉罚时后不再累加）、暂停冻结计时与暂停计数、
+    胜利判定（X 标记不影响）、存档恢复（含尺寸对不上的兜底）与重开清档。
+  - `tests/bootstrap.test.ts`（14 例）：`puzzleFromStored` 重建谜题（线索现算、`daily-` 前缀兜底识别来源、
+    损坏答案返回 null）、`restoreFromStored` 还原统计并继续计时、`samePattern`、
+    `ensureGame` 的四条决策路径（分享码 / 当前这局 / 谜题 id / 存档）、`createNewGame` 与「刷新后同一道题」。
+- **理由**：这两层是"刷新页面后进度与计时可恢复"（验收第 7 条）和"涂抹 / 撤销 / 判定模式"
+  （验收第 4、5 条）的实现处，此前完全没有测试，属于真实风险点；不是为凑覆盖率而加。
+
+### 本轮改动（文件清单）
+
+**新增**
+
+- `docs/screenshots/*`（8 张界面截图）、`public/og-cover.png`（社交分享封面）
+- `CHANGELOG.md`
+- `eslint.config.js`、`.prettierrc.json`、`.prettierignore`
+- `.github/workflows/ci.yml`
+- `src/core/achievements.ts`、`src/core/statistics.ts`、`src/core/dailyChallenge.ts`
+- `src/core/solverInput.ts`、`src/core/solverSteps.ts`、`src/core/solverProtocol.ts`、`src/core/solverClient.ts`、`src/core/solverHistory.ts`
+- `src/core/boardImage.ts`
+- `src/components/AchievementToast.tsx`、`src/components/SolverGrid.tsx`、`src/components/SolverStepPlayer.tsx`
+- `src/pages/StatsPage.tsx`、`src/pages/SolverPage.tsx`
+- `src/workers/solver.worker.ts`
+- `scripts/puzzle-qa.ts`
+- 测试：`tests/storage.test.ts`、`tests/storageFallback.test.ts`、`tests/challenge.test.ts`、`tests/solverPlayground.test.ts`、`tests/gameStore.test.ts`、`tests/bootstrap.test.ts`（另有既有测试扩充）
+
+**修改（要点）**
+
+- `src/core/storage.ts`：Storage 信封 / 迁移 / 降级 / `clearAllData` 补齐
+- `src/core/generator.ts`、`src/core/difficulty.ts`、`src/core/types.ts`：正方形盘面、退化线控制、质量指标
+- `src/core/solver.ts`、`src/core/progress.ts`：`SolveResult` 输出、线索自动划线按解判定
+- `src/core/generator.ts`：新增 `UNLIMITED_TIME_BUDGET_MS`（把墙钟从难度判定里排除，修 flaky 测试）；`tests/generator.test.ts`、`tests/acceptance.test.ts` 的质量断言改用不限时预算
+- `src/pages/HomePage.tsx`、`src/pages/GamePage.tsx`、`src/pages/EditorPage.tsx`、`src/pages/SettingsPage.tsx`：每日挑战入口、结果页、仓库地址、设置项
+- `src/store/gameStore.ts`、`src/store/settingsStore.ts`、`src/store/editorStore.ts`
+- `index.html`：SEO / OG / Twitter / favicon / theme-color
+- `README.md`、`package.json`、`DECISIONS.md`、`CHANGELOG.md`
+
+### 本轮验收结果
+
+| 项 | 结果 |
+| --- | --- |
+| `pnpm lint` | ✅ 0 error / 8 warning（均为 `set-state-in-effect` 类建议，已在配置中说明） |
+| `pnpm format:check` | ✅ 通过 |
+| `pnpm test` | ✅ 178 用例 / 14 文件全绿（覆盖率插桩下同样全绿） |
+| `pnpm build` | ✅ `tsc -b` + `vite build` 无错误 |
+| `pnpm puzzle:qa --count=20` | ✅ 四档各 20 题：唯一解 20/20、线索一致 20/20、难度达标 20/20、退化线 0 |
+| 20×20 生成 < 1 秒 | ✅ 实测平均 1.3 ms、最慢 4.0 ms |
+| 自动解答复核 | ✅ 未发现新 bug；顺带修掉 3 个存量缺陷（见 D49） |
+| 从游戏抄线索进 solver 与 `solution` 一致 | ✅ 人工验证通过 |
+| 多解对照 / 差异高亮 | ✅ 展示两个不同解并高亮差异格 |
+| README 与代码一致 | ✅ 测试数、命令、功能、限制逐条对照当前代码 |

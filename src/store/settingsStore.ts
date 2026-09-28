@@ -20,6 +20,8 @@ export interface SettingsState {
   autoPause: boolean
   /** 移动端：默认画笔模式 */
   paintMode: PaintMode
+  /** 开局前显示「难度 / 预计用时」信息页（计时从第一次操作才开始，所以不影响成绩） */
+  showStartScreen: boolean
   set<K extends keyof SettingsState>(key: K, value: SettingsState[K]): void
   reset(): void
 }
@@ -34,6 +36,7 @@ const DEFAULTS = {
   hintPenalty: true,
   autoPause: true,
   paintMode: 'fill' as PaintMode,
+  showStartScreen: true,
 }
 
 export const useSettingsStore = create<SettingsState>()(

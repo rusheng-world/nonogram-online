@@ -29,6 +29,8 @@ export function puzzleFromStored(saved: StoredProgress): Puzzle | null {
     difficulty: saved.difficulty,
     seed: saved.seed,
     title: saved.title,
+    // 老存档没有 source 字段：用种子前缀兜底识别每日挑战
+    source: saved.source ?? (saved.seed.startsWith('daily-') ? 'daily' : undefined),
   }
 }
 
@@ -43,6 +45,7 @@ export function restoreFromStored(saved: StoredProgress, judgeMode: JudgeMode): 
     mistakes: saved.mistakes,
     hintsUsed: saved.hintsUsed,
     penaltyMs: saved.penaltyMs,
+    pauseCount: saved.pauseCount ?? 0,
   })
   return true
 }
@@ -50,6 +53,17 @@ export function restoreFromStored(saved: StoredProgress, judgeMode: JudgeMode): 
 export interface LoadOutcome {
   ok: boolean
   error?: string
+}
+
+/**
+ * 两个谜题是否「同一道题」：尺寸相同 + 图案逐格相同。
+ * 用于「分享码指向的题就是当前正在玩的题」这种情况，避免重复 startPuzzle。
+ */
+export function samePattern(a: Puzzle, b: Puzzle): boolean {
+  if (a.width !== b.width || a.height !== b.height) return false
+  if (a.solution.length !== b.solution.length) return false
+  for (let i = 0; i < a.solution.length; i++) if (a.solution[i] !== b.solution[i]) return false
+  return true
 }
 
 /**
@@ -65,6 +79,11 @@ export function ensureGame(params: URLSearchParams, judgeMode: JudgeMode): LoadO
   if (share) {
     const puzzle = puzzleFromCode(share)
     if (!puzzle) return { ok: false, error: '分享链接无法解析，请检查是否被截断' }
+    // 分享码里的题就是当前这局（典型场景：从「自定义编辑器」「自动解题」跳过来，
+    // 跳转前已经 startPuzzle 过一次）。这时保留 store 里那一个 —— 它带着更完整的
+    // 元信息（seed / title / source），而分享码还原出来的那个只有尺寸和图案。
+    const current = store.puzzle
+    if (current && !store.completed && samePattern(current, puzzle)) return { ok: true }
     if (store.puzzle?.id !== puzzle.id || store.completed) {
       const saved = loadProgress()
       if (saved && saved.puzzleId === puzzle.id && restoreFromStored(saved, judgeMode)) return { ok: true }

@@ -4,6 +4,8 @@ import { EditorPage } from './pages/EditorPage'
 import { GamePage } from './pages/GamePage'
 import { HomePage } from './pages/HomePage'
 import { SettingsPage } from './pages/SettingsPage'
+import { StatsPage } from './pages/StatsPage'
+import { SolverPage } from './pages/SolverPage'
 import { navigate, useRoute } from './router'
 import { applyTheme, useSettingsStore } from './store/settingsStore'
 
@@ -43,8 +45,14 @@ export function App(): JSX.Element {
     case '/editor':
       page = <EditorPage params={route.params} />
       break
+    case '/solver':
+      page = <SolverPage />
+      break
     case '/settings':
       page = <SettingsPage />
+      break
+    case '/stats':
+      page = <StatsPage />
       break
     case '/':
       page = <HomePage params={route.params} />

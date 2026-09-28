@@ -1,17 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   IconCalendar,
+  IconChart,
   IconGithub,
   IconPencil,
   IconPlay,
   IconRefresh,
   IconSettings,
+  IconSolver,
   IconTrash,
   IconTrophy,
 } from '../components/icons'
 import { Button, Card, Modal, Pill } from '../components/ui'
+import { getDailyChallenge, msUntilNextDaily, type DailyChallengeInfo } from '../core/dailyChallenge'
 import { safeDifficulty } from '../core/generator'
 import { randomSeed } from '../core/rng'
+import { loadDailyRecords, type DailyRecord } from '../core/storage'
 import {
   clearHistory,
   loadHistory,
@@ -28,19 +32,11 @@ import { navigate } from '../router'
 import { useGameStore } from '../store/gameStore'
 import { applyTheme, useSettingsStore } from '../store/settingsStore'
 
-/** 每日一题按星期轮换难度，保证一周内不会一直是同一档 */
-const DAILY_ROTATION: readonly Difficulty[] = ['medium', 'easy', 'medium', 'hard', 'medium', 'hard', 'expert']
-
 const ACCENT: Record<string, string> = {
   emerald: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
   sky: 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300',
   amber: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
   rose: 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300',
-}
-
-function todayKey(date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 function countRecordsByDifficulty(): Record<Difficulty, number> {
@@ -67,11 +63,12 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
   const busyRef = useRef(false)
   const launchedRef = useRef(false)
 
-  const recordCounts = useMemo(countRecordsByDifficulty, [history])
-  const dailyKey = todayKey()
-  const dailySeed = `daily-${dailyKey}`
-  const dailyDifficulty = DAILY_ROTATION[new Date().getDay()] ?? 'medium'
-  const dailyDone = history.some((entry) => entry.seed === dailySeed)
+  // 「每档已有几个最佳成绩」独立存 state：它读的是 records（与 history 不是同一份数据）
+  const [recordCounts, setRecordCounts] = useState(() => countRecordsByDifficulty())
+  /** 每日挑战：难度 / 种子 / 尺寸全部由 UTC 日期决定（见 core/dailyChallenge.ts） */
+  const [daily, setDaily] = useState<DailyChallengeInfo>(() => getDailyChallenge())
+  const [dailyRecord, setDailyRecord] = useState<DailyRecord | null>(null)
+  const countdown = formatCountdown(msUntilNextDaily())
 
   /**
    * 生成并开始一局。
@@ -106,10 +103,20 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
     launch(difficulty, params.get('seed') ?? randomSeed(), `正在生成「${DIFFICULTY_META[difficulty].label}」…`)
   }, [params, launch])
 
-  // 从游戏页返回时刷新存档/历史
+  // 从游戏页返回时刷新存档 / 历史 / 每日挑战记录。
+  // 每 60 秒重新取一次「今天是哪一天」，这样跨过 UTC 零点后页面会自动换题。
   useEffect(() => {
+    const sync = () => {
+      const info = getDailyChallenge()
+      setDaily(info)
+      setDailyRecord(loadDailyRecords()[info.date] ?? null)
+    }
+    sync()
     setSaved(loadProgress())
     setHistory(loadHistory())
+    setRecordCounts(countRecordsByDifficulty())
+    const timer = window.setInterval(sync, 60_000)
+    return () => window.clearInterval(timer)
   }, [])
 
   const onToggleTheme = () => {
@@ -133,7 +140,9 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
     <div className="app-flow flex flex-1 flex-col">
       <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-ink-200/70 bg-ink-50/85 px-3 py-2.5 backdrop-blur dark:border-ink-800 dark:bg-ink-950/85 sm:px-6">
         <div className="flex items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-xl bg-indigo-600 text-sm font-bold text-white">数</span>
+          <span className="grid h-8 w-8 place-items-center rounded-xl bg-indigo-600 text-sm font-bold text-white">
+            数
+          </span>
           <div className="leading-tight">
             <h1 className="text-sm font-semibold text-ink-900 dark:text-white">Nonogram Online</h1>
             <p className="text-[11px] text-ink-500 dark:text-ink-400">数织工坊 · 在线数织游戏</p>
@@ -146,6 +155,10 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
           <Button variant="ghost" size="sm" onClick={() => navigate('/editor')} aria-label="自定义编辑器">
             <IconPencil />
             <span className="hidden sm:inline">编辑器</span>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => navigate('/solver')} aria-label="自动解题">
+            <IconSolver />
+            <span className="hidden sm:inline">自动解题</span>
           </Button>
           <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} aria-label="设置">
             <IconSettings />
@@ -194,24 +207,35 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
             </Card>
           ) : null}
 
-          {/* 每日一题 */}
+          {/* 每日挑战：所有人当天拿到同一道题 */}
           <Card className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <IconCalendar size={16} className="text-sky-500" />
-              <h2 className="text-sm font-semibold text-ink-900 dark:text-white">每日一题</h2>
-              <Pill tone="success">{dailyKey}</Pill>
+              <h2 className="text-sm font-semibold text-ink-900 dark:text-white">每日挑战</h2>
+              <Pill tone={dailyRecord ? 'success' : 'default'}>{daily.date}</Pill>
+              <span className="text-[11px] text-ink-400">
+                {DIFFICULTY_META[daily.difficulty].label} · {daily.width}×{daily.height}
+              </span>
             </div>
-            <p className="text-xs text-ink-500 dark:text-ink-400">
-              今天的题目是「{DIFFICULTY_META[dailyDifficulty].label}」，全世界同一个种子，题目固定可复现。
-              {dailyDone ? ' 你今天已经完成过啦，可以再刷一次纪录。' : ''}
-            </p>
+            {dailyRecord ? (
+              <div className="rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/25">
+                <div className="font-semibold">今天已完成 ✓</div>
+                <div className="mt-0.5 tabular-nums">
+                  ⏱ {formatDuration(dailyRecord.timeMs)} · 错误 {dailyRecord.mistakes} · 提示 {dailyRecord.hintsUsed}
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-ink-500 dark:text-ink-400">
+                每天一道固定题目，全世界同一个种子，刷新不会换题。日期按 UTC 计算，{countdown}后换新题。
+              </p>
+            )}
             <Button
-              variant={dailyDone ? 'secondary' : 'primary'}
+              variant={dailyRecord ? 'secondary' : 'primary'}
               className="self-start"
-              onClick={() => launch(dailyDifficulty, dailySeed, '正在生成今日题目…')}
+              onClick={() => launch(daily.difficulty, daily.seed, '正在生成今日题目…')}
             >
               <IconPlay />
-              {dailyDone ? '再玩一次' : '开始今日题目'}
+              {dailyRecord ? '再挑战一次（只保留更快的成绩）' : '开始今日挑战'}
             </Button>
           </Card>
         </section>
@@ -235,7 +259,12 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
                       {meta.boardSize}×{meta.boardSize}
                     </span>
                   </div>
-                  <p className="min-h-[32px] text-[11px] leading-snug text-ink-500 dark:text-ink-400">{meta.description}</p>
+                  <p className="min-h-[32px] text-[11px] leading-snug text-ink-500 dark:text-ink-400">
+                    {meta.description}
+                  </p>
+                  <p className="text-[11px] text-ink-400">
+                    预计 {meta.estimatedMinutes[0]}–{meta.estimatedMinutes[1]} 分钟
+                  </p>
                   <div className="flex items-center gap-1 text-[11px] text-ink-400">
                     <IconTrophy size={13} />
                     已有 {recordCounts[difficulty]} 个最佳成绩
@@ -269,6 +298,36 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
           </Button>
         </Card>
 
+        {/* 自动解题入口 */}
+        <Card className="flex flex-wrap items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold text-ink-900 dark:text-white">自动解题 · Solver Playground</h2>
+            <p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">
+              输入尺寸和行/列线索，让求解器算出答案，并逐步演示「行列推理 → 假设 → 回退」的完整推理过程。
+            </p>
+          </div>
+          <Button variant="primary" onClick={() => navigate('/solver')}>
+            <IconSolver />
+            打开自动解题
+          </Button>
+        </Card>
+
+        {/* 统计与成就入口 */}
+        <Card className="flex flex-wrap items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold text-ink-900 dark:text-white">
+              <IconChart size={16} className="text-indigo-500" />
+              统计与成就
+            </h2>
+            <p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">
+              完成题数、连续挑战天数、各难度最快成绩、最近对局，以及 10 项成就的解锁进度。
+            </p>
+          </div>
+          <Button variant="secondary" onClick={() => navigate('/stats')}>
+            查看统计
+          </Button>
+        </Card>
+
         {/* 历史成绩 */}
         <section className="space-y-2">
           <div className="flex items-center justify-between">
@@ -290,14 +349,21 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
             ) : (
               <ul className="divide-y divide-ink-100 dark:divide-ink-800">
                 {history.slice(0, 12).map((entry) => (
-                  <li key={`${entry.puzzleId}-${entry.completedAt}`} className="flex items-center gap-3 px-3 py-2 text-xs">
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${ACCENT[DIFFICULTY_META[entry.difficulty].accent]}`}>
+                  <li
+                    key={`${entry.puzzleId}-${entry.completedAt}`}
+                    className="flex items-center gap-3 px-3 py-2 text-xs"
+                  >
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${ACCENT[DIFFICULTY_META[entry.difficulty].accent]}`}
+                    >
                       {DIFFICULTY_META[entry.difficulty].label}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-ink-500 dark:text-ink-400">
                       {entry.title ?? `${entry.width}×${entry.height}`}
                     </span>
-                    <span className="font-mono tabular-nums text-ink-700 dark:text-ink-200">{formatDuration(entry.timeMs)}</span>
+                    <span className="font-mono tabular-nums text-ink-700 dark:text-ink-200">
+                      {formatDuration(entry.timeMs)}
+                    </span>
                     <span className="w-16 text-right text-ink-400">
                       错 {entry.mistakes} · 提示 {entry.hintsUsed}
                     </span>
@@ -310,8 +376,8 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
 
         <footer className="space-y-1 pb-6 text-[11px] leading-relaxed text-ink-400">
           <p>
-            操作：点击涂黑 / 右键（或长按）标记 X / 拖拽连续涂 / 方向键移动光标、空格涂黑、X 标记、Delete 清除、Ctrl+Z 撤销。
-            进度与成绩保存在浏览器本地，关闭页面后可以继续。
+            操作：点击涂黑 / 右键（或长按）标记 X / 拖拽连续涂 / 方向键移动光标、空格涂黑、X 标记、Delete 清除、Ctrl+Z
+            撤销。 进度与成绩保存在浏览器本地，关闭页面后可以继续。
           </p>
           <p>
             项目仓库：
@@ -362,4 +428,12 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
       </Modal>
     </div>
   )
+}
+/** 距离下一次换题（UTC 零点）的可读倒计时 */
+function formatCountdown(ms: number): string {
+  const totalMinutes = Math.floor(ms / 60_000)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours > 0) return `${hours} 小时 ${minutes} 分`
+  return `${Math.max(1, minutes)} 分钟`
 }

@@ -73,7 +73,7 @@ const SYMMETRY_OPTIONS: { value: EditorSymmetry; label: string; hint: string }[]
  * 刻意绕一圈「编码 -> 解码」：这样得到的 id / seed 与 GamePage 解析分享链接时
  * 生成的完全一致，刷新页面或把链接发给别人都会是同一道题。
  */
-export function buildEditorPuzzle(grid: Uint8Array, width: number, height: number, difficulty: Difficulty): Puzzle {
+function buildEditorPuzzle(grid: Uint8Array, width: number, height: number, difficulty: Difficulty): Puzzle {
   const solution = grid.slice()
   const { rowClues, colClues } = computeClues(solution, width, height)
   const raw: Puzzle = {
@@ -85,20 +85,21 @@ export function buildEditorPuzzle(grid: Uint8Array, width: number, height: numbe
     colClues,
     difficulty,
     seed: `custom-${shortHash(solution)}`,
+    source: 'editor',
   }
   const puzzle = puzzleFromCode(encodePuzzleCode(raw))
   if (!puzzle) return raw
   puzzle.title = `自定义 ${width}×${height}`
+  // puzzleFromCode 只还原「尺寸 + 图案 + 难度」，这里把「自定义」的身份补回去：
+  // seed 用图案指纹（同一图案永远同一个 key，成绩不会互相覆盖），
+  // source 让游戏页知道它来自编辑器（不影响分享链接 —— 别人打开链接时仍按分享码还原）。
+  puzzle.seed = raw.seed
+  puzzle.source = 'editor'
   return puzzle
 }
 
 /** 把对称设置作用到一组格子上 */
-function withSymmetry(
-  indices: number[],
-  width: number,
-  height: number,
-  symmetry: EditorSymmetry,
-): number[] {
+function withSymmetry(indices: number[], width: number, height: number, symmetry: EditorSymmetry): number[] {
   if (symmetry === 'none') return indices
   const seen = new Set<number>()
   const out: number[] = []
@@ -124,11 +125,7 @@ const EditorCell = ({
   value: number
   registerRef: (index: number, el: HTMLDivElement | null) => void
 }): JSX.Element => (
-  <div
-    ref={(el) => registerRef(index, el)}
-    className="nb-cell nb-edit-cell"
-    data-state={value ? 'filled' : 'empty'}
-  />
+  <div ref={(el) => registerRef(index, el)} className="nb-cell nb-edit-cell" data-state={value ? 'filled' : 'empty'} />
 )
 
 interface DragState {
@@ -264,7 +261,10 @@ export function EditorPage({ params }: { params: URLSearchParams }): JSX.Element
     }
     return max
   }, [clues.rowClues])
-  const maxColLines = useMemo(() => clues.colClues.reduce((acc, line) => Math.max(acc, line.length), 1), [clues.colClues])
+  const maxColLines = useMemo(
+    () => clues.colClues.reduce((acc, line) => Math.max(acc, line.length), 1),
+    [clues.colClues],
+  )
   const gutterX = Math.ceil(rowClueWeight * numFont * 0.6) + 8
   const gutterY = maxColLines * clueLine + 8
 
@@ -308,9 +308,8 @@ export function EditorPage({ params }: { params: URLSearchParams }): JSX.Element
     const toY = (to - toX) / width
     let cells: number[]
     if (oneShot) {
-      cells = drag.tool === 'rect'
-        ? rectangleCells(fromX, fromY, toX, toY, width)
-        : lineCells(fromX, fromY, toX, toY, width)
+      cells =
+        drag.tool === 'rect' ? rectangleCells(fromX, fromY, toX, toY, width) : lineCells(fromX, fromY, toX, toY, width)
       cells = withSymmetry(cells, width, height, symmetry)
     } else {
       cells = withSymmetry(lineCells(fromX, fromY, toX, toY, width), width, height, symmetry)
@@ -330,7 +329,12 @@ export function EditorPage({ params }: { params: URLSearchParams }): JSX.Element
 
     if (effectiveTool === 'bucket') {
       const target = grid[index]
-      const cells = withSymmetry(floodFillCells(grid, width, height, index % width, Math.floor(index / width), value), width, height, symmetry)
+      const cells = withSymmetry(
+        floodFillCells(grid, width, height, index % width, Math.floor(index / width), value),
+        width,
+        height,
+        symmetry,
+      )
       const changes: { index: number; value: number }[] = []
       for (const cell of cells) {
         const el = cellRefs.current[cell]
@@ -414,7 +418,14 @@ export function EditorPage({ params }: { params: URLSearchParams }): JSX.Element
   const applySize = (nextW: number, nextH: number) => {
     const w = Math.round(nextW)
     const h = Math.round(nextH)
-    if (!Number.isFinite(w) || !Number.isFinite(h) || w < MIN_EDITOR_SIZE || h < MIN_EDITOR_SIZE || w > MAX_EDITOR_SIZE || h > MAX_EDITOR_SIZE) {
+    if (
+      !Number.isFinite(w) ||
+      !Number.isFinite(h) ||
+      w < MIN_EDITOR_SIZE ||
+      h < MIN_EDITOR_SIZE ||
+      w > MAX_EDITOR_SIZE ||
+      h > MAX_EDITOR_SIZE
+    ) {
       setNotice(`尺寸需在 ${MIN_EDITOR_SIZE}~${MAX_EDITOR_SIZE} 之间`)
       setSizeInput({ w: String(width), h: String(height) })
       return
@@ -604,7 +615,9 @@ export function EditorPage({ params }: { params: URLSearchParams }): JSX.Element
             <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-500 dark:text-ink-400">画布</h2>
             <div className="flex items-end gap-2">
               <label className="flex-1">
-                <span className="block text-[11px] text-ink-500 dark:text-ink-400">宽 ({MIN_EDITOR_SIZE}-{MAX_EDITOR_SIZE})</span>
+                <span className="block text-[11px] text-ink-500 dark:text-ink-400">
+                  宽 ({MIN_EDITOR_SIZE}-{MAX_EDITOR_SIZE})
+                </span>
                 <input
                   type="number"
                   min={MIN_EDITOR_SIZE}
@@ -660,10 +673,14 @@ export function EditorPage({ params }: { params: URLSearchParams }): JSX.Element
                 </p>
                 <p>
                   难度评估：
-                  <span className="font-medium text-ink-700 dark:text-ink-200">{DIFFICULTY_META[analysis.difficulty].label}</span>
+                  <span className="font-medium text-ink-700 dark:text-ink-200">
+                    {DIFFICULTY_META[analysis.difficulty].label}
+                  </span>
                   （{analysis.score} 分）
                 </p>
-                <p>填充率：{Math.round((filled / cellCount) * 100)}% · 求解耗时 {analysis.timeMs.toFixed(0)}ms</p>
+                <p>
+                  填充率：{Math.round((filled / cellCount) * 100)}% · 求解耗时 {analysis.timeMs.toFixed(0)}ms
+                </p>
                 {analysis.unique === false ? (
                   <p className="text-rose-600 dark:text-rose-400">存在多个解，开局后可能出现逻辑分叉。</p>
                 ) : null}
@@ -674,7 +691,9 @@ export function EditorPage({ params }: { params: URLSearchParams }): JSX.Element
           </Card>
 
           <Card className="space-y-2 p-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-500 dark:text-ink-400">文本导入 / 导出</h2>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-500 dark:text-ink-400">
+              文本导入 / 导出
+            </h2>
             <textarea
               ref={textareaRef}
               value={uploadText}
@@ -758,7 +777,10 @@ export function EditorPage({ params }: { params: URLSearchParams }): JSX.Element
             >
               <div
                 className="nb-board"
-                style={{ gridTemplateColumns: `repeat(${width}, ${zoom}px)`, gridTemplateRows: `repeat(${height}, ${zoom}px)` }}
+                style={{
+                  gridTemplateColumns: `repeat(${width}, ${zoom}px)`,
+                  gridTemplateRows: `repeat(${height}, ${zoom}px)`,
+                }}
               >
                 {Array.from({ length: width * height }, (_, index) => (
                   <EditorCell key={index} index={index} value={grid[index]} registerRef={registerRef} />
@@ -768,14 +790,24 @@ export function EditorPage({ params }: { params: URLSearchParams }): JSX.Element
                 <div
                   key={`gx-${x}`}
                   className="pointer-events-none absolute top-0"
-                  style={{ left: x * zoom - 1, width: 2, height: zoom * height, backgroundColor: 'var(--nb-grid-strong)' }}
+                  style={{
+                    left: x * zoom - 1,
+                    width: 2,
+                    height: zoom * height,
+                    backgroundColor: 'var(--nb-grid-strong)',
+                  }}
                 />
               ))}
               {guideLinesY.map((y) => (
                 <div
                   key={`gy-${y}`}
                   className="pointer-events-none absolute left-0"
-                  style={{ top: y * zoom - 1, height: 2, width: zoom * width, backgroundColor: 'var(--nb-grid-strong)' }}
+                  style={{
+                    top: y * zoom - 1,
+                    height: 2,
+                    width: zoom * width,
+                    backgroundColor: 'var(--nb-grid-strong)',
+                  }}
                 />
               ))}
             </div>

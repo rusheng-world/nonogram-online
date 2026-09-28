@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { IconBack, IconTrash } from '../components/icons'
+import { IconBack, IconChart, IconTrash } from '../components/icons'
 import { Button, Card, Modal, Segmented, Toggle } from '../components/ui'
-import { clearHistory, clearProgress, loadHistory, loadProgress, saveRecords } from '../core/storage'
+import { clearAllData, clearHistory, clearProgress, loadHistory, loadProgress, saveRecords } from '../core/storage'
 import type { JudgeMode, ThemeMode } from '../core/types'
 import { navigate } from '../router'
 import { HINT_PENALTY_MS } from '../store/gameStore'
@@ -64,7 +64,11 @@ export function SettingsPage(): JSX.Element {
               决定「涂错」的反馈方式。为了让成绩可比，判定模式在开局时固定，修改后从下一局开始生效。
             </p>
           </div>
-          <Segmented value={settings.judgeMode} options={JUDGE_OPTIONS} onChange={(value) => setSetting('judgeMode', value)} />
+          <Segmented
+            value={settings.judgeMode}
+            options={JUDGE_OPTIONS}
+            onChange={(value) => setSetting('judgeMode', value)}
+          />
           <p className="text-[11px] text-ink-500 dark:text-ink-400">{judgeHint}</p>
         </Card>
 
@@ -97,6 +101,12 @@ export function SettingsPage(): JSX.Element {
               checked={settings.showTimer}
               onChange={(value) => setSetting('showTimer', value)}
             />
+            <Toggle
+              label="开局信息页"
+              description="开局前先显示难度、预计用时与难度分；计时本来就从第一次涂格开始，关掉只是少一层确认"
+              checked={settings.showStartScreen}
+              onChange={(value) => setSetting('showStartScreen', value)}
+            />
           </div>
         </Card>
 
@@ -124,7 +134,11 @@ export function SettingsPage(): JSX.Element {
           </div>
           <div className="space-y-1">
             <span className="text-[11px] text-ink-500 dark:text-ink-400">触屏模式默认动作</span>
-            <Segmented value={settings.paintMode} options={PAINT_OPTIONS} onChange={(value) => setSetting('paintMode', value)} />
+            <Segmented
+              value={settings.paintMode}
+              options={PAINT_OPTIONS}
+              onChange={(value) => setSetting('paintMode', value)}
+            />
           </div>
         </Card>
 
@@ -193,17 +207,50 @@ export function SettingsPage(): JSX.Element {
               <IconTrash size={15} />
               清除当前进度
             </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() =>
+                setConfirm({
+                  title: '清空全部本地数据？',
+                  body: '进度、最佳成绩、历史成绩、每日挑战记录与成就解锁状态都会被删除（设置本身保留）。',
+                  confirmLabel: '全部清空',
+                  action: () => {
+                    clearAllData()
+                    setMessage('本地数据已全部清空')
+                    refreshStats()
+                  },
+                })
+              }
+            >
+              <IconTrash size={15} />
+              清空全部数据
+            </Button>
           </div>
           {message ? <p className="text-[11px] text-emerald-600 dark:text-emerald-400">{message}</p> : null}
+        </Card>
+
+        <Card className="flex flex-wrap items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold text-ink-900 dark:text-white">
+              <IconChart size={16} className="text-indigo-500" />
+              统计与成就
+            </h2>
+            <p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">
+              完成题数、连续天数、各难度最快成绩与成就进度，全部现算自本地数据。
+            </p>
+          </div>
+          <Button variant="secondary" onClick={() => navigate('/stats')}>
+            查看统计
+          </Button>
         </Card>
 
         <Card className="space-y-2">
           <h2 className="text-sm font-semibold text-ink-900 dark:text-white">关于</h2>
           <p className="text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
             Nonogram Online（数织工坊）v{APP_VERSION} · 在线数织游戏，打开网页就能玩，
-            无需安装、无需注册；没有后端，全部逻辑都在浏览器里跑。
-            谜题由「随机团块生长 + 对称镜像 + 噪声」生成图案，再用 DP 线索传播求解器验证唯一解，
-            并按解出该题所需的回溯次数与假设链深度评定难度。
+            无需安装、无需注册；没有后端，全部逻辑都在浏览器里跑。 谜题由「随机团块生长 + 对称镜像 +
+            噪声」生成图案，再用 DP 线索传播求解器验证唯一解， 并按解出该题所需的回溯次数与假设链深度评定难度。
           </p>
           <p className="text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
             快捷键：方向键移动光标，空格涂黑，X 标记，Delete 清除，Ctrl+Z / Ctrl+Shift+Z 撤销重做，H 提示，P 暂停。
@@ -231,7 +278,10 @@ export function SettingsPage(): JSX.Element {
                 {SITE_URL}
               </a>
             </p>
-            <p className="text-ink-400">本项目由 deepseek-v4.1-flash 生成。</p>
+            <p className="text-ink-400">
+              开发说明：本项目在开发过程中使用了 AI 辅助进行代码生成、测试与文档整理，并在其基础上完成设计、
+              验证与打磨。
+            </p>
           </div>
         </Card>
       </main>

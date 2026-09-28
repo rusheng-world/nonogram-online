@@ -72,7 +72,8 @@ export function useBoardMetrics(params: {
   }, [box.width, box.height])
 
   const availW = box.width > 0 ? box.width : Math.min(360, typeof window === 'undefined' ? 360 : window.innerWidth - 24)
-  const availH = box.height > 0 ? box.height : Math.max(220, (typeof window === 'undefined' ? 700 : window.innerHeight) - 260)
+  const availH =
+    box.height > 0 ? box.height : Math.max(220, (typeof window === 'undefined' ? 700 : window.innerHeight) - 260)
 
   if (fixedCell) {
     const cell = clamp(Math.round(fixedCell), 5, 48)
@@ -91,8 +92,8 @@ export function useBoardMetrics(params: {
   }
 
   let cell = maxCell
-  let numFont = 16
-  let clueLine = 20
+  let numFont: number
+  let clueLine: number
   for (let i = 0; i < 3; i++) {
     numFont = clamp(Math.round(cell * 0.62), 8, 18)
     clueLine = clueLineOf(cell)

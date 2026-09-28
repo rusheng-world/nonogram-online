@@ -1,11 +1,11 @@
 {
   "name": "nonogram-online",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.1.0",
   "type": "module",
   "license": "MIT",
   "homepage": "https://rusheng-world.github.io/nonogram-online/",
-  "description": "Nonogram Online（数织工坊）· 在线数织（Nonogram / Picross）游戏：自动生成谜题、算法难度分级、自定义编辑器、成绩存档。本项目由 deepseek-v4.1-flash 生成。",
+  "description": "Nonogram Online · 在线数织游戏（Nonogram / Picross）：自动生成谜题、算法难度分级、每日挑战、自定义编辑器、自动解题与成绩统计。",
   "scripts": {
     "dev": "vite",
     "share": "pnpm run build && vite preview --port 5173 --strictPort",
@@ -13,7 +13,13 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false"
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "puzzle:qa": "tsx scripts/puzzle-qa.ts"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -21,13 +27,22 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^2.1.8",
     "autoprefixer": "^10.4.20",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.12.0",
     "postcss": "^8.4.49",
+    "prettier": "^3.9.9",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.23.15",
     "typescript": "^5.6.3",
+    "typescript-eslint": "^8.70.1",
     "vite": "^5.4.11",
     "vitest": "^2.1.8"
   },

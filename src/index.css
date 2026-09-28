@@ -63,6 +63,10 @@
     --nb-wrong: #ef4444;
     --nb-hover-band: rgba(59, 130, 246, 0.14);
     --nb-cursor: #2563eb;
+    --nb-deduced: #eef2f8;
+    --nb-step: #2563eb;
+    --nb-assume: #d97706;
+    --nb-diff: #ef4444;
   }
 
   .dark {
@@ -78,6 +82,10 @@
     --nb-wrong: #f87171;
     --nb-hover-band: rgba(147, 197, 253, 0.16);
     --nb-cursor: #93c5fd;
+    --nb-deduced: #232a3d;
+    --nb-step: #93c5fd;
+    --nb-assume: #fbbf24;
+    --nb-diff: #f87171;
   }
 }
 
@@ -151,7 +159,9 @@
   width: var(--nb-cell-size);
   height: var(--nb-cell-size);
   background-color: var(--nb-cell-empty);
-  box-shadow: inset -1px 0 0 var(--nb-grid-line), inset 0 -1px 0 var(--nb-grid-line);
+  box-shadow:
+    inset -1px 0 0 var(--nb-grid-line),
+    inset 0 -1px 0 var(--nb-grid-line);
   transition: background-color 0.1s linear;
   touch-action: none;
   user-select: none;
@@ -258,6 +268,44 @@
 
 .dark .nb-clue[data-active='1'] .nb-clue-num {
   color: #93c5fd;
+}
+
+/* ------------------------------------------------------------------ */
+/* 自动解题（Solver Playground）专用                                   */
+/* ------------------------------------------------------------------ */
+
+/*
+ * 「逻辑上必为白」的格子：不画 X（需求 9.5 要求答案棋盘只有填充 / 空），
+ * 只用极淡的底色把"推导出来的空白"与"还没推断出来的空白"区分开，
+ * 让逐步演示时能看出推理的推进范围。
+ */
+.nb-cell[data-deduced='1'] {
+  background-color: var(--nb-deduced);
+}
+
+/* 本步新确定的格子：描边高亮（传播推出的用蓝色，假设的用琥珀色） */
+.nb-cell[data-step='step'] {
+  outline: 2px solid var(--nb-step);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.nb-cell[data-step='assume'] {
+  outline: 3px solid var(--nb-assume);
+  outline-offset: -3px;
+  z-index: 2;
+}
+
+/* 多解对照：两个解不一致的格子 */
+.nb-cell[data-step='diff'] {
+  outline: 2px solid var(--nb-diff);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+/* 「无解」时把产生矛盾的那条线整行/整列标出来 */
+.nb-cell[data-step='contradiction'] {
+  background-color: color-mix(in srgb, var(--nb-wrong) 26%, var(--nb-cell-empty));
 }
 
 /* 滚动条（编辑器大棋盘） */

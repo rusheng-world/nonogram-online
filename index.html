@@ -3,20 +3,46 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5.0" />
-    <meta name="theme-color" content="#0f172a" />
+    <meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <meta name="description" content="Nonogram Online（数织工坊）· 在线数织（Nonogram / Picross）游戏：自动生成谜题、算法难度分级、自定义编辑器、成绩存档。由 deepseek-v4.1-flash 生成。" />
-    <title>Nonogram Online · 数织工坊</title>
+    <link rel="apple-touch-icon" href="./favicon.svg" />
+    <meta
+      name="description"
+      content="免费在线数织游戏（Nonogram / Picross），支持自动生成谜题、算法难度分级、每日挑战、自定义编辑器、提示与成绩统计，桌面端与手机端都能玩。"
+    />
+    <meta name="keywords" content="数织,数织游戏,Nonogram,Picross,在线数织,免费数织,逻辑谜题" />
+    <title>Nonogram Online · 在线数织游戏</title>
+
+    <!-- Open Graph / 社交分享 -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Nonogram Online" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:title" content="Nonogram Online · 在线数织游戏" />
+    <meta
+      property="og:description"
+      content="免费在线数织游戏，支持自动生成谜题、难度分级、自定义编辑器、每日挑战和成绩统计。"
+    />
+    <meta property="og:url" content="https://rusheng-world.github.io/nonogram-online/" />
+    <meta property="og:image" content="https://rusheng-world.github.io/nonogram-online/og-cover.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Nonogram Online · 在线数织游戏" />
+    <meta
+      name="twitter:description"
+      content="免费在线数织游戏，支持自动生成谜题、难度分级、自定义编辑器、每日挑战和成绩统计。"
+    />
+    <meta name="twitter:image" content="https://rusheng-world.github.io/nonogram-online/og-cover.png" />
     <script>
       // 在 React 挂载前应用主题，避免闪烁
-      (function () {
+      ;(function () {
         try {
-          var raw = localStorage.getItem('nonogram-settings-v1');
-          var theme = raw ? JSON.parse(raw).state.theme : 'system';
-          var dark = theme === 'dark' || (theme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-          document.documentElement.classList.toggle('dark', dark);
+          var raw = localStorage.getItem('nonogram-settings-v1')
+          var theme = raw ? JSON.parse(raw).state.theme : 'system'
+          var dark =
+            theme === 'dark' || (theme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.classList.toggle('dark', dark)
         } catch (e) {}
-      })();
+      })()
     </script>
   </head>
   <body>

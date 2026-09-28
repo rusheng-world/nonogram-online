@@ -58,10 +58,7 @@ export function Segmented<T extends string>({
   className?: string
 }): JSX.Element {
   return (
-    <div
-      className={`inline-flex rounded-xl bg-ink-100 p-0.5 dark:bg-ink-800 ${className}`}
-      role="tablist"
-    >
+    <div className={`inline-flex rounded-xl bg-ink-100 p-0.5 dark:bg-ink-800 ${className}`} role="tablist">
       {options.map((option) => {
         const active = option.value === value
         return (
@@ -101,7 +98,9 @@ export function Toggle({
     <label className="flex cursor-pointer items-center justify-between gap-4 py-2">
       <span>
         <span className="block text-sm font-medium text-ink-800 dark:text-ink-100">{label}</span>
-        {description ? <span className="mt-0.5 block text-xs text-ink-500 dark:text-ink-400">{description}</span> : null}
+        {description ? (
+          <span className="mt-0.5 block text-xs text-ink-500 dark:text-ink-400">{description}</span>
+        ) : null}
       </span>
       <button
         type="button"
@@ -185,12 +184,22 @@ export function Stat({ label, value, hint }: { label: string; value: ReactNode; 
   )
 }
 
-export function Pill({ children, tone = 'default' }: { children: ReactNode; tone?: 'default' | 'success' | 'warn' | 'danger' }): JSX.Element {
+export function Pill({
+  children,
+  tone = 'default',
+}: {
+  children: ReactNode
+  tone?: 'default' | 'success' | 'warn' | 'danger'
+}): JSX.Element {
   const tones = {
     default: 'bg-ink-100 text-ink-700 dark:bg-ink-800 dark:text-ink-200',
     success: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
     warn: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
     danger: 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300',
   }
-  return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${tones[tone]}`}>{children}</span>
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${tones[tone]}`}>
+      {children}
+    </span>
+  )
 }

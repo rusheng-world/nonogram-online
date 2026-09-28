@@ -14,6 +14,7 @@
 
 import { DIFFICULTY_META, isDifficulty } from './types'
 import type { Difficulty, Puzzle } from './types'
+import type { PuzzleQualityMetrics } from './types'
 import { computeClues } from './clues'
 import { analyzePuzzle, isDifficultyReachable } from './difficulty'
 import type { AnalyzeResult } from './difficulty'
@@ -30,7 +31,12 @@ export interface GenerateOptions {
   height: number
   difficulty: Difficulty
   seed: string
-  /** 总时间预算（毫秒），默认按面积自适应 */
+  /**
+   * 总时间预算（毫秒），默认按面积自适应。
+   *
+   * 传 `UNLIMITED_TIME_BUDGET_MS` 可以关掉墙钟，让候选搜索只受 `maxAttempts` 约束 ——
+   * 此时「同一 seed 生成同一道题」是**数学上确定**的，与机器快慢、是否被插桩无关。
+   */
   timeBudgetMs?: number
   /** 最大尝试次数 */
   maxAttempts?: number
@@ -63,6 +69,21 @@ export interface GenerateResult {
  * 「新开一局」和「按 id 重放」必须共享同一个常量，否则同一道题可能在刷新后变成另一道。
  */
 export const GENERATION_TIME_BUDGET_MS = 4000
+
+/**
+ * 「不限时」预算：候选搜索只受 `maxAttempts` 约束，墙钟完全不参与决策。
+ *
+ * 存在的意义：
+ *   1. 测试要断言「生成质量」（唯一解 / 难度达标）时，必须把机器快慢排除在外。
+ *      否则同一份代码在覆盖率插桩、CI 抢占 CPU 或慢机器上会给出不同结论 ——
+ *      这正是「质量断言被墙钟污染」这类 flaky 测试的根源。
+ *   2. 需要跨设备复现同一道题时（每日挑战 / 按 id 重放），只要预算充足，
+ *      「候选顺序 + 候选次数上限」就足以唯一确定结果。
+ *
+ * 生产路径（新开一局 / 重放）仍然用有限预算，保证慢设备上不会长时间卡住主线程；
+ * 这也是 `createNewGame` 生成后会再验证一次「重放 == 同一道题」的原因。
+ */
+export const UNLIMITED_TIME_BUDGET_MS = Number.POSITIVE_INFINITY
 
 /**
  * 各档的候选次数上限（同一个种子下候选序列是确定的，所以这个数字也必须由两边共享）。
@@ -179,14 +200,7 @@ const PATTERN_PARAMS: Record<Difficulty, PatternParams> = {
 }
 
 /** 与 (x,y) 具有镜像关系的所有格子下标（含自身）——用于保证对称性 */
-function mirrorIndices(
-  width: number,
-  height: number,
-  x: number,
-  y: number,
-  symmetry: Symmetry,
-  out: number[],
-): void {
+function mirrorIndices(width: number, height: number, x: number, y: number, symmetry: Symmetry, out: number[]): void {
   out.length = 0
   const add = (px: number, py: number) => {
     const idx = py * width + px
@@ -356,6 +370,23 @@ export function countDegenerateLines(solution: ArrayLike<number>, width: number,
 }
 
 /**
+ * 汇总一个生成结果的质量指标（见 types.ts 的 PuzzleQualityMetrics）。
+ * 只做派生计算、不跑搜索，因此可以安全地用于批量 QA 或调试输出。
+ */
+export function qualityMetricsOf(result: GenerateResult): PuzzleQualityMetrics {
+  const { puzzle, metrics, score } = result
+  return {
+    fillRate: metrics.fillRatio,
+    clueCount: metrics.clueCount,
+    degenerateLines: countDegenerateLines(puzzle.solution, puzzle.width, puzzle.height),
+    difficultyScore: score,
+    guesses: metrics.guesses,
+    solutionDepth: metrics.solutionDepth,
+    propagationRounds: metrics.propagationRounds,
+  }
+}
+
+/**
  * 尽量消掉退化线（**就地修改** grid），返回是否改动过。
  *
  * 两条规则都很关键，否则会「按下葫芦浮起瓢」：
@@ -506,12 +537,7 @@ function isInteresting(grid: Uint8Array, width: number, height: number): boolean
   for (let i = 0; i < grid.length; i++) if (grid[i]) filled++
   const ratio = filled / (width * height)
   return (
-    rows.size >= 3 &&
-    cols.size >= 3 &&
-    rowFull <= height / 2 &&
-    colFull <= width / 2 &&
-    ratio > 0.15 &&
-    ratio < 0.85
+    rows.size >= 3 && cols.size >= 3 && rowFull <= height / 2 && colFull <= width / 2 && ratio > 0.15 && ratio < 0.85
   )
 }
 
@@ -721,6 +747,8 @@ function buildPuzzle(
     colClues,
     difficulty,
     seed,
+    // 每日挑战的种子有固定前缀：这样无论是新开一局、按 id 重放还是分享，来源都不会丢
+    source: seed.startsWith('daily-') ? 'daily' : 'generated',
   }
 }
 
@@ -916,7 +944,7 @@ export function generatePuzzle(options: GenerateOptions): GenerateResult {
 
   let width = options.width
   let height = options.height
-  let difficulty = options.difficulty
+  const difficulty = options.difficulty
 
   let result = attemptGenerate({
     width,
@@ -951,7 +979,6 @@ export function generatePuzzle(options: GenerateOptions): GenerateResult {
       if (third.matched) {
         // 降级到更简单的档位 => 不再算“达标”
         result = { ...third, matched: false }
-        difficulty = easier
         width = size
         height = size
         notice = `未能生成符合「${DIFFICULTY_META[options.difficulty].label}」的题目，已降级为「${DIFFICULTY_META[easier].label}」（${size}×${size}）`
@@ -972,6 +999,9 @@ export function generatePuzzle(options: GenerateOptions): GenerateResult {
         : `未能在 ${width}x${height} 生成「${requested}」难度，实际难度为「${DIFFICULTY_META[result.difficulty].label}」`
   }
 
+  // 把连续难度分附在谜题上：开局信息页要显示「难度 78 / 100」，
+  // 不想在渲染时再跑一次求解器（而且题目一旦重放，这个分数也必须是同一份）。
+  result.puzzle.score = result.score
   return finish(result, downgrade, notice, t0)
 }
 

@@ -218,8 +218,32 @@ export const IconCalendar = ({ size = 18, className = '' }: IconProps) => (
 )
 
 /** GitHub 标记（实心，因此不走 base() 的描边设置） */
+export const IconSolver = ({ size = 18, className = '' }: IconProps) => (
+  <svg {...base(size, className)}>
+    <path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4z" />
+    <circle cx="16.5" cy="16.5" r="3.5" />
+    <path d="m19.2 19.2 2 2" />
+  </svg>
+)
+
+/** GitHub 标记（实心，因此不走 base() 的描边设置） */
 export const IconGithub = ({ size = 18, className = '' }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
     <path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-1.04-.01-1.89-2.78.62-3.37-1.21-3.37-1.21-.45-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.05 1.53 1.05.9 1.57 2.35 1.12 2.92.85.09-.66.35-1.12.63-1.38-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.34 9.34 0 0 1 2.5-.34c.85 0 1.7.12 2.5.34 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.6.69.49A10.03 10.03 0 0 0 22 12.25C22 6.58 17.52 2 12 2z" />
+  </svg>
+)
+
+/** 图表（统计页） */
+export const IconChart = ({ size = 18, className = '' }: IconProps) => (
+  <svg {...base(size, className)}>
+    <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+  </svg>
+)
+
+/** 奖牌（成就） */
+export const IconMedal = ({ size = 18, className = '' }: IconProps) => (
+  <svg {...base(size, className)}>
+    <circle cx="12" cy="14" r="5" />
+    <path d="M8.5 4h7l-2 5h-3zM5 9l3-5M19 9l-3-5" />
   </svg>
 )

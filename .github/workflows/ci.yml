@@ -1,0 +1,33 @@
+# 持续集成：push / PR 时执行「安装 → 静态检查 → 单元测试 → 生产构建」。
+# deploy.yml 会重复执行这套检查，保证「CI 不通过就不部署」。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # pnpm 11 要求 Node >= 22.13
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        # 不写 version：读取 package.json 的 packageManager，避免版本冲突
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Format check
+        run: pnpm format:check
+      - name: Test
+        run: pnpm test
+      - name: Build
+        run: pnpm build

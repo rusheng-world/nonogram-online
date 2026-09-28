@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { CELL_TO_STATE, EMPTY, FILLED, UNKNOWN, cellToState } from '../core/types'
 import { computeLineDone } from '../core/progress'
 import { useGameStore } from '../store/gameStore'
@@ -14,6 +14,9 @@ const FRAME_PADDING = 6
 
 interface CellProps {
   index: number
+  /** 1 基行号 / 列号（accessibility 用，直接算好传进来避免在 memo 组件里重复计算） */
+  row: number
+  col: number
   state: number
   wrong: number
   guideX: boolean
@@ -21,15 +24,29 @@ interface CellProps {
   registerRef: (index: number, el: HTMLDivElement | null) => void
 }
 
+/** 单元格状态的读屏文案。不依赖颜色，符合「不只靠颜色表达状态」的要求。 */
+function stateText(state: number): string {
+  if (state === FILLED) return '已填充'
+  if (state === EMPTY) return '已标记为空'
+  if (state === UNKNOWN) return '空'
+  return '空'
+}
+
 /**
  * 单元格。
  * React.memo + 只传原始值：拖拽绘制时父组件不重渲染，单元格也几乎不会重渲染
  * （拖拽期间的可视反馈由 DOM 直接写入 dataset，见 paintCell）。
+ *
+ * 无障碍：每个格子是 gridcell 并带「第 X 行，第 Y 列，状态」的 aria-label。
  */
-const Cell = memo(function Cell({ index, state, wrong, guideX, guideY, registerRef }: CellProps) {
+const Cell = memo(function Cell({ index, row, col, state, wrong, guideX, guideY, registerRef }: CellProps) {
   return (
     <div
       ref={(el) => registerRef(index, el)}
+      role="gridcell"
+      aria-rowindex={row}
+      aria-colindex={col}
+      aria-label={`第 ${row} 行，第 ${col} 列，${stateText(state)}`}
       className="nb-cell"
       data-state={cellToState(state)}
       data-wrong={wrong}
@@ -85,8 +102,11 @@ export function GameBoard() {
   const wrapRef = useRef<HTMLDivElement>(null)
   const rowBandRef = useRef<HTMLDivElement>(null)
   const colBandRef = useRef<HTMLDivElement>(null)
+  // 在 render 期间写 ref 会踩到 React 的并发渲染；改到提交之后再同步，供指针事件读取。
   const cellSizeRef = useRef(cell)
-  cellSizeRef.current = cell
+  useEffect(() => {
+    cellSizeRef.current = cell
+  }, [cell])
 
   const registerRef = useCallback((index: number, el: HTMLDivElement | null) => {
     cellRefs.current[index] = el
@@ -215,11 +235,7 @@ export function GameBoard() {
     if (index < 0) return
     event.preventDefault()
     const primary = event.button !== 2
-    const action: 'fill' | 'mark' = primary
-      ? leftAction(paintMode)
-      : leftAction(paintMode) === 'fill'
-        ? 'mark'
-        : 'fill'
+    const action: 'fill' | 'mark' = primary ? leftAction(paintMode) : leftAction(paintMode) === 'fill' ? 'mark' : 'fill'
     strokeRef.current = { action, painted: new Set(), pending: new Map(), original: new Map() }
     paintCell(index)
     useGameStore.getState().setCursor(index)
@@ -341,7 +357,14 @@ export function GameBoard() {
 
         <div
           ref={wrapRef}
-          className="relative touch-none select-none"
+          // 无障碍：整体是一个 grid，焦点可达（键盘快捷键本身挂在 window 上）
+          role="grid"
+          aria-label={`数织棋盘，${height} 行 ${width} 列`}
+          aria-rowcount={height}
+          aria-colcount={width}
+          aria-readonly
+          tabIndex={0}
+          className="relative touch-none select-none rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           style={{ width: cell * width, height: cell * height }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -352,15 +375,20 @@ export function GameBoard() {
         >
           <div
             className="nb-board"
-            style={{ gridTemplateColumns: `repeat(${width}, ${cell}px)`, gridTemplateRows: `repeat(${height}, ${cell}px)` }}
+            style={{
+              gridTemplateColumns: `repeat(${width}, ${cell}px)`,
+              gridTemplateRows: `repeat(${height}, ${cell}px)`,
+            }}
           >
             {Array.from({ length: width * height }, (_, index) => (
               <Cell
                 key={index}
                 index={index}
+                row={Math.floor(index / width) + 1}
+                col={(index % width) + 1}
                 state={board[index]}
                 wrong={wrong[index]}
-                guideX={index % width % 5 === 0}
+                guideX={(index % width) % 5 === 0}
                 guideY={Math.floor(index / width) % 5 === 0}
                 registerRef={registerRef}
               />
@@ -371,12 +399,24 @@ export function GameBoard() {
           <div
             ref={rowBandRef}
             className="pointer-events-none absolute left-0 opacity-0"
-            style={{ top: 0, height: cell, width: cell * width, backgroundColor: 'var(--nb-hover-band)', transition: 'opacity .1s' }}
+            style={{
+              top: 0,
+              height: cell,
+              width: cell * width,
+              backgroundColor: 'var(--nb-hover-band)',
+              transition: 'opacity .1s',
+            }}
           />
           <div
             ref={colBandRef}
             className="pointer-events-none absolute top-0 opacity-0"
-            style={{ left: 0, width: cell, height: cell * height, backgroundColor: 'var(--nb-hover-band)', transition: 'opacity .1s' }}
+            style={{
+              left: 0,
+              width: cell,
+              height: cell * height,
+              backgroundColor: 'var(--nb-hover-band)',
+              transition: 'opacity .1s',
+            }}
           />
 
           {/* 每 5 格的辅助线 */}
