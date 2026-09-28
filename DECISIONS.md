@@ -1023,3 +1023,11 @@
 | 普通游戏 / 每日挑战 / 自定义 / 分享链接未受影响 | ✅ 200 个单元测试全绿（含每日挑战、编辑器、分享码往返、存档恢复）；线上回归脚本另测 |
 | 移动端 375 px 可操作 | ✅ 无横向滚动、棋盘完整、触摸可涂格 |
 | 版本一致性 | ✅ `package.json` = `src/project.ts` = Git tag = GitHub Release = `1.2.0` |
+### 线上实测（GitHub Pages，v1.2.0）
+
+- **部署链路**：推 `main`（`c61dc6d`）→ **CI**（lint / format:check / test / build）success → **Deploy to GitHub Pages** success → <https://rusheng-world.github.io/nonogram-online/> 返回 200。
+- **线上资源与本地构建一致**：线上 HTML 引用的入口是 `assets/index-C7WZRV5E.js`，与本机 `dist/index.html` 完全相同，且该包里含版本号 `1.2.0`。
+- **线上新手教程验收**：✅ **33 / 33**（同一份脚本，只把 `SITE_URL` 指向线上；含 375 px 移动端触摸与无横向滚动）。
+- **线上自动解题复核**：✅ **20 / 20**（含 20×20 逐步演示终帧与真实解一致、多解对照、无解、50×50 取消）。
+- **线上核心玩法回归**（上一轮的 13 项脚本）：✅ **13 / 13**（标题 / 棋盘出现 / 5×5 / 涂格 / 撤销 / 暂停遮罩 / 分享 / 自动解题 / 统计 / 设置 / 无未捕获报错）。
+- **版本一致性**：`package.json` = `src/project.ts` = Git tag `v1.2.0` = GitHub Release `v1.2.0` = `1.2.0`。tag 指向发布代码提交 `c61dc6d`；本节（线上实测结论）是随后的文档补记。
