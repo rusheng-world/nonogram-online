@@ -418,7 +418,12 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
         ) : null}
 
         {paused && !completed ? (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 rounded-2xl bg-ink-50/95 backdrop-blur-sm dark:bg-ink-950/95">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="已暂停"
+            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 rounded-2xl bg-ink-50/95 backdrop-blur-sm dark:bg-ink-950/95"
+          >
             <IconPause size={28} className="text-ink-400" />
             <p className="text-sm text-ink-600 dark:text-ink-300">已暂停 · 用时 {formatDuration(elapsed)}</p>
             <p className="text-xs text-ink-400">棋盘已遮住，避免偷看</p>
@@ -430,7 +435,12 @@ export function GamePage({ params }: { params: URLSearchParams }): JSX.Element {
         ) : null}
 
         {showStartOverlay ? (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 rounded-2xl bg-ink-50/95 p-4 text-center backdrop-blur-sm dark:bg-ink-950/95">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="开局信息"
+            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 rounded-2xl bg-ink-50/95 p-4 text-center backdrop-blur-sm dark:bg-ink-950/95"
+          >
             <Pill>
               {meta.label} · {puzzle.width}×{puzzle.height}
             </Pill>
