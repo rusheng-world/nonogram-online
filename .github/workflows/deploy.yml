@@ -31,7 +31,9 @@ jobs:
         # "Multiple versions of pnpm specified" 报错（已实测踩过）。
       - run: pnpm install --frozen-lockfile
       # 部署前重复跑一遍质量门禁，避免「测试挂了但页面照发」
+      # 步骤与 ci.yml 保持一致：lint -> format:check -> test -> build
       - run: pnpm lint
+      - run: pnpm format:check
       - run: pnpm test
       - run: pnpm run build
       - uses: actions/configure-pages@v5
