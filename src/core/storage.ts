@@ -44,6 +44,13 @@ const ACHIEVEMENTS_KEY = 'nonogram-achievements-v1'
  */
 export const SOLVER_HISTORY_KEY = 'nonogram-solver-history-v1'
 
+/**
+ * 新手教程进度（需求 12 / 13）：只存「学到第几阶段」与「是否学完」。
+ * 教程对局不会走到任何成绩写入逻辑（见 store/gameStore.ts 的 tutorial 分支），
+ * 所以这个 key 是教程在本地留下的唯一痕迹。
+ */
+export const TUTORIAL_KEY = 'nonogram-tutorial-v1'
+
 /** 历史成绩最多保留多少条（统计页要按它算平均 / 连续天数，所以别太小） */
 export const HISTORY_LIMIT = 200
 
@@ -208,6 +215,7 @@ export function migrateStorage(): { version: number; issues: string[] } {
     [DAILY_KEY, isObject],
     [ACHIEVEMENTS_KEY, isObject],
     [SOLVER_HISTORY_KEY, Array.isArray],
+    [TUTORIAL_KEY, (value) => isObject(value) && typeof (value as { step?: unknown }).step === 'number'],
   ]
   for (const [key, validate] of checks) {
     const raw = rawGet(key)
@@ -533,6 +541,32 @@ export function decodeBoard(token: string, length: number): Uint8Array | null {
   return board
 }
 
+// ---------------------------------------------------------------------------
+// 新手教程进度
+// ---------------------------------------------------------------------------
+
+/**
+ * 教程进度。
+ * `step` 的口径：0 = 欢迎页，1..7 = 教学阶段（与 core/tutorial.ts 的阶段号一致）。
+ */
+export interface TutorialProgress {
+  step: number
+  completed: boolean
+  updatedAt: number
+}
+
+export function loadTutorialProgress(): TutorialProgress | null {
+  return readJson<TutorialProgress | null>(
+    TUTORIAL_KEY,
+    null,
+    (value) => isObject(value) && typeof value.step === 'number' && typeof value.completed === 'boolean',
+  )
+}
+
+export function saveTutorialProgress(progress: { step: number; completed: boolean }): void {
+  writeJson(TUTORIAL_KEY, { ...progress, updatedAt: Date.now() })
+}
+
 /** 清空全部本地数据（设置页的「清除所有数据」用） */
 export function clearAllData(): void {
   for (const key of [
@@ -543,6 +577,7 @@ export function clearAllData(): void {
     DAILY_KEY,
     ACHIEVEMENTS_KEY,
     SOLVER_HISTORY_KEY,
+    TUTORIAL_KEY,
   ]) {
     removeJson(key)
   }

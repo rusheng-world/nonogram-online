@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { CELL_TO_STATE, EMPTY, FILLED, UNKNOWN, cellToState } from '../core/types'
 import { computeLineDone } from '../core/progress'
-import { useGameStore } from '../store/gameStore'
+import { useGameStore, type StrokeChange } from '../store/gameStore'
 import { useSettingsStore, type PaintMode } from '../store/settingsStore'
 import { MIN_CELL, clueLineOf, clueWeightOf, maxClueLines, useBoardMetrics } from '../hooks/useBoardMetrics'
 import { ColumnClues, RowClues } from './ClueStrips'
@@ -12,6 +12,36 @@ const LONG_PRESS_MS = 450
 /** 与 index.css 里 .nb-frame 的 padding 保持一致（棋盘外框内边距） */
 const FRAME_PADDING = 6
 
+/**
+ * 教学高亮（需求 19）：只在教程页使用。
+ * 给了 rows / cols 时，焦点之外的格子会降低视觉权重；被点到的格子用虚线描边强调。
+ * 这里的重点是「不只靠颜色」——高亮用的是虚线边框（形状差异），而不是只换底色。
+ */
+export interface BoardHighlight {
+  /** 需要高亮的行（0 基） */
+  rows?: readonly number[]
+  /** 需要高亮的列（0 基） */
+  cols?: readonly number[]
+  /** 需要柔和指出的格子（0 基下标，教程里用来指出「刚刚点错的地方」） */
+  soft?: readonly number[]
+}
+
+export interface GameBoardProps {
+  /** 教学高亮；不传时渲染与普通对局完全一致 */
+  highlight?: BoardHighlight | null
+  /**
+   * 单元格最大边长（默认 34，与普通对局一致）。
+   * 教程只有 5×5，格子放大一点更好点也更好看。
+   */
+  maxCell?: number
+  /**
+   * 落笔前的拦截钩子（教程的「强制操作约束」）。
+   * 返回 false 表示这次笔触不被接受：GameBoard 会把这一笔的视觉改回原样，
+   * 不写入 store、不压撤销栈。钩子内部负责给出反馈文案。
+   */
+  guard?: ((changes: StrokeChange[]) => boolean) | null
+}
+
 interface CellProps {
   index: number
   /** 1 基行号 / 列号（accessibility 用，直接算好传进来避免在 memo 组件里重复计算） */
@@ -21,6 +51,10 @@ interface CellProps {
   wrong: number
   guideX: boolean
   guideY: boolean
+  /** 教学高亮 / 柔和提示 / 焦点之外 */
+  hl: boolean
+  soft: boolean
+  dim: boolean
   registerRef: (index: number, el: HTMLDivElement | null) => void
 }
 
@@ -39,7 +73,19 @@ function stateText(state: number): string {
  *
  * 无障碍：每个格子是 gridcell 并带「第 X 行，第 Y 列，状态」的 aria-label。
  */
-const Cell = memo(function Cell({ index, row, col, state, wrong, guideX, guideY, registerRef }: CellProps) {
+const Cell = memo(function Cell({
+  index,
+  row,
+  col,
+  state,
+  wrong,
+  guideX,
+  guideY,
+  hl,
+  soft,
+  dim,
+  registerRef,
+}: CellProps) {
   return (
     <div
       ref={(el) => registerRef(index, el)}
@@ -52,6 +98,9 @@ const Cell = memo(function Cell({ index, row, col, state, wrong, guideX, guideY,
       data-wrong={wrong}
       data-gx={guideX ? 1 : 0}
       data-gy={guideY ? 1 : 0}
+      data-hl={hl ? 1 : undefined}
+      data-soft={soft ? 1 : undefined}
+      data-dim={dim ? 1 : undefined}
     />
   )
 })
@@ -63,7 +112,7 @@ interface StrokeState {
   original: Map<number, { state: number; wrong: number }>
 }
 
-export function GameBoard() {
+export function GameBoard({ highlight = null, guard = null, maxCell }: GameBoardProps = {}) {
   const puzzle = useGameStore((s) => s.puzzle)
   const board = useGameStore((s) => s.board)
   const wrong = useGameStore((s) => s.wrong)
@@ -85,7 +134,27 @@ export function GameBoard() {
   const rowClueWeight = useMemo(() => (puzzle ? clueWeightOf(puzzle.rowClues) : 1), [puzzle])
   const colClueLines = useMemo(() => (puzzle ? maxClueLines(puzzle.colClues) : 1), [puzzle])
 
-  const { containerRef, metrics } = useBoardMetrics({ width, height, rowClueWeight, colClueLines })
+  /*
+   * 教学高亮（需求 19）：只有教程页会传 highlight，普通对局下这几个集合都是空的，
+   * 渲染结果与以前完全一致（data-hl / data-soft / data-dim 不写进 DOM）。
+   */
+  const hlRows = useMemo(() => new Set(highlight?.rows ?? []), [highlight])
+  const hlCols = useMemo(() => new Set(highlight?.cols ?? []), [highlight])
+  const softCells = useMemo(() => new Set(highlight?.soft ?? []), [highlight])
+  const focusMode = hlRows.size > 0 || hlCols.size > 0
+  // 线索条的高亮 = 教学高亮的行/列 + 鼠标悬停的行/列（没有高亮时保持原来的单个数字）
+  const rowActive = useMemo(() => {
+    const list = new Set(hlRows)
+    if (hoverRow >= 0) list.add(hoverRow)
+    return list.size > 0 ? Array.from(list) : -1
+  }, [hlRows, hoverRow])
+  const colActive = useMemo(() => {
+    const list = new Set(hlCols)
+    if (hoverCol >= 0) list.add(hoverCol)
+    return list.size > 0 ? Array.from(list) : -1
+  }, [hlCols, hoverCol])
+
+  const { containerRef, metrics } = useBoardMetrics({ width, height, rowClueWeight, colClueLines, maxCell })
   const { cell, gutterX, gutterY, numFont, clueLine } = metrics
 
   /*
@@ -214,9 +283,22 @@ export function GameBoard() {
 
   const commitStroke = () => {
     const stroke = strokeRef.current
-    strokeRef.current = null
-    if (!stroke || stroke.pending.size === 0) return
+    if (!stroke || stroke.pending.size === 0) {
+      strokeRef.current = null
+      return
+    }
     const changes = Array.from(stroke.pending.entries()).map(([index, value]) => ({ index, value }))
+    /*
+     * 教程模式：落笔前先问 guard（需求 8「强制操作约束」）。
+     * 被拒绝时只把这一笔的视觉改回原样 —— 不写 store、不压撤销栈、也不会闪红，
+     * 玩家看到的是「这一笔没生效 + 一句解释」，而不是被判错。
+     */
+    if (guard && !guard(changes)) {
+      revertStroke()
+      strokeRef.current = null
+      return
+    }
+    strokeRef.current = null
     const outcome = applyStroke(changes)
     if (soundOn) {
       if (outcome.completed) playSound('win')
@@ -351,9 +433,9 @@ export function GameBoard() {
           numFont={numFont}
           clueLine={clueLine}
           progress={colProgress}
-          active={hoverCol}
+          active={colActive}
         />
-        <RowClues clues={puzzle.rowClues} cell={cell} numFont={numFont} progress={rowProgress} active={hoverRow} />
+        <RowClues clues={puzzle.rowClues} cell={cell} numFont={numFont} progress={rowProgress} active={rowActive} />
 
         <div
           ref={wrapRef}
@@ -380,19 +462,27 @@ export function GameBoard() {
               gridTemplateRows: `repeat(${height}, ${cell}px)`,
             }}
           >
-            {Array.from({ length: width * height }, (_, index) => (
-              <Cell
-                key={index}
-                index={index}
-                row={Math.floor(index / width) + 1}
-                col={(index % width) + 1}
-                state={board[index]}
-                wrong={wrong[index]}
-                guideX={(index % width) % 5 === 0}
-                guideY={Math.floor(index / width) % 5 === 0}
-                registerRef={registerRef}
-              />
-            ))}
+            {Array.from({ length: width * height }, (_, index) => {
+              const x = index % width
+              const y = Math.floor(index / width)
+              const inFocus = hlRows.has(y) || hlCols.has(x)
+              return (
+                <Cell
+                  key={index}
+                  index={index}
+                  row={y + 1}
+                  col={x + 1}
+                  state={board[index]}
+                  wrong={wrong[index]}
+                  guideX={x % 5 === 0}
+                  guideY={y % 5 === 0}
+                  hl={inFocus}
+                  soft={softCells.has(index)}
+                  dim={focusMode && !inFocus}
+                  registerRef={registerRef}
+                />
+              )
+            })}
           </div>
 
           {/* 高亮当前行 / 列 */}

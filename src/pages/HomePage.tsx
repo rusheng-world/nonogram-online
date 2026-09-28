@@ -31,6 +31,7 @@ import { REPO_URL, SITE_URL } from '../project'
 import { navigate } from '../router'
 import { useGameStore } from '../store/gameStore'
 import { applyTheme, useSettingsStore } from '../store/settingsStore'
+import { hasCompletedTutorial } from '../store/tutorialStore'
 
 const ACCENT: Record<string, string> = {
   emerald: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
@@ -65,6 +66,8 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
 
   // 「每档已有几个最佳成绩」独立存 state：它读的是 records（与 history 不是同一份数据）
   const [recordCounts, setRecordCounts] = useState(() => countRecordsByDifficulty())
+  /** 教程是否已经学完一遍（只影响入口文案，不影响任何成绩） */
+  const [tutorialDone, setTutorialDone] = useState(() => hasCompletedTutorial())
   /** 每日挑战：难度 / 种子 / 尺寸全部由 UTC 日期决定（见 core/dailyChallenge.ts） */
   const [daily, setDaily] = useState<DailyChallengeInfo>(() => getDailyChallenge())
   const [dailyRecord, setDailyRecord] = useState<DailyRecord | null>(null)
@@ -115,6 +118,7 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
     setSaved(loadProgress())
     setHistory(loadHistory())
     setRecordCounts(countRecordsByDifficulty())
+    setTutorialDone(hasCompletedTutorial())
     const timer = window.setInterval(sync, 60_000)
     return () => window.clearInterval(timer)
   }, [])
@@ -283,6 +287,22 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
             })}
           </div>
         </section>
+
+        {/* 新手教程（需求 25：入口要显眼但不要抢首页最大的位置） */}
+        <Card className="flex flex-wrap items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold text-ink-900 dark:text-white">
+              🧩 新手教程
+              {tutorialDone ? <Pill tone="success">✓ 已完成教程</Pill> : null}
+            </h2>
+            <p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">
+              第一次玩数织？跟着一个 5×5 的小图案边玩边学：数字怎么读、行列怎么看、× 什么时候用得上，三分钟上手。
+            </p>
+          </div>
+          <Button variant={tutorialDone ? 'secondary' : 'primary'} onClick={() => navigate('/tutorial')}>
+            {tutorialDone ? '重新学习' : '开始教程'}
+          </Button>
+        </Card>
 
         {/* 自定义入口 */}
         <Card className="flex flex-wrap items-center gap-3">

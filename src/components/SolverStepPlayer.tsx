@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { SolverGrid, type CellHighlightKind } from './SolverGrid'
 import { Button, Pill } from './ui'
-import { boardAfter, keyStepIndexes } from '../core/solverSteps'
+import { frameSequence, keyStepIndexes } from '../core/solverSteps'
 import type { SolveStep, SolveStepType } from '../core/solver'
 
 interface SolverStepPlayerProps {
@@ -77,7 +77,10 @@ export function SolverStepPlayer({ steps, width, height, rowClues, colClues, tru
   const step = stepIndex >= 0 ? steps[stepIndex] : null
   const size = width * height
 
-  const board = useMemo(() => boardAfter(steps, size, stepIndex), [steps, size, stepIndex])
+  // 一趟正向折叠把所有关键节点的棋盘算好；翻页只是取数组，不会随页数变慢
+  const frames = useMemo(() => frameSequence(steps, size, sequence), [steps, size, sequence])
+  const blank = useMemo(() => new Uint8Array(size), [size])
+  const board = pos >= 0 ? (frames[pos] ?? blank) : blank
 
   const highlight = useMemo(() => {
     if (!step?.cells || step.cells.length === 0) return null

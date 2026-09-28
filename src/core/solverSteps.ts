@@ -87,3 +87,25 @@ export function keyStepIndexes(steps: readonly SolveStep[], limit = 500): number
   }
   return keys.length > 0 ? keys : steps.map((_, i) => i)
 }
+
+/**
+ * 一次性算出「每个关键节点的棋盘快照」，供逐步演示使用。
+ *
+ * 为什么不是「每次翻页都调一次 boardAfter()」：boardAfter 每次都从第 0 步
+ * 重新折叠，播放 n 个节点就是 O(n²) 的重复计算 —— 大棋盘长轨迹下会明显卡顿。
+ * 这里只做**一趟**正向折叠，在关键节点处存一份棋盘副本，翻页就是 O(1) 取数组。
+ *
+ * @param indexes 关键节点下标（必须递增，来自 keyStepIndexes）
+ */
+export function frameSequence(steps: readonly SolveStep[], size: number, indexes: readonly number[]): Uint8Array[] {
+  const frames: Uint8Array[] = new Array(indexes.length)
+  const state = createPlayback(size)
+  let cursor = 0
+  for (let i = 0; i < indexes.length; i++) {
+    const target = Math.min(indexes[i], steps.length - 1)
+    for (let s = cursor; s <= target; s++) playbackApply(state, steps[s])
+    cursor = target + 1
+    frames[i] = state.board.slice()
+  }
+  return frames
+}

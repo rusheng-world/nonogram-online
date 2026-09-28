@@ -67,6 +67,8 @@
     --nb-step: #2563eb;
     --nb-assume: #d97706;
     --nb-diff: #ef4444;
+    --nb-highlight: #6366f1;
+    --nb-soft: #d97706;
   }
 
   .dark {
@@ -86,6 +88,8 @@
     --nb-step: #93c5fd;
     --nb-assume: #fbbf24;
     --nb-diff: #f87171;
+    --nb-highlight: #a5b4fc;
+    --nb-soft: #fbbf24;
   }
 }
 
@@ -225,6 +229,46 @@
   border-radius: 2px;
 }
 
+/* ------------------------------------------------------------------ */
+/* 新手教程：教学高亮（需求 19）                                        */
+/* ------------------------------------------------------------------ */
+
+/*
+ * 焦点之外的格子降低视觉权重。用 opacity 而不是「盖一层灰」，
+ * 这样已填 / 未填 / X 三种状态的对比仍然看得出来。
+ */
+.nb-cell[data-dim='1'] {
+  opacity: 0.4;
+}
+
+/*
+ * 教学焦点：虚线描边 —— 刻意不用纯色块，
+ * 这样「高亮」不只靠颜色区分（需求 23「高亮不能只依靠颜色」）。
+ */
+.nb-cell[data-hl='1'] {
+  outline: 2px dashed var(--nb-highlight);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+/* 「这一格不太对」的柔和提示（教程的鼓励式反馈，不是判错） */
+.nb-cell[data-soft='1'] {
+  outline: 2px solid var(--nb-soft);
+  outline-offset: -2px;
+  animation: nb-soft-pulse 0.9s ease-in-out 2;
+  z-index: 2;
+}
+
+@keyframes nb-soft-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
 @keyframes nb-shake {
   0%,
   100% {
@@ -329,5 +373,9 @@
   .nb-cell[data-wrong='2'] {
     animation: none;
     transition: none;
+  }
+
+  .nb-cell[data-soft='1'] {
+    animation: none;
   }
 }

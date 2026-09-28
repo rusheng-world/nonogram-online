@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { IconBack, IconChart, IconTrash } from '../components/icons'
+import { IconBack, IconBulb, IconChart, IconTrash } from '../components/icons'
 import { Button, Card, Modal, Segmented, Toggle } from '../components/ui'
 import { clearAllData, clearHistory, clearProgress, loadHistory, loadProgress, saveRecords } from '../core/storage'
 import type { JudgeMode, ThemeMode } from '../core/types'
 import { navigate } from '../router'
 import { HINT_PENALTY_MS } from '../store/gameStore'
 import { applyTheme, useSettingsStore, type PaintMode } from '../store/settingsStore'
+import { hasCompletedTutorial } from '../store/tutorialStore'
 import { APP_VERSION, REPO_URL, SITE_URL } from '../project'
 
 const JUDGE_OPTIONS: { value: JudgeMode; label: string; hint: string }[] = [
@@ -40,8 +41,14 @@ export function SettingsPage(): JSX.Element {
   const [stats, setStats] = useState(() => ({
     historyCount: loadHistory().length,
     hasProgress: loadProgress() !== null,
+    tutorialDone: hasCompletedTutorial(),
   }))
-  const refreshStats = () => setStats({ historyCount: loadHistory().length, hasProgress: loadProgress() !== null })
+  const refreshStats = () =>
+    setStats({
+      historyCount: loadHistory().length,
+      hasProgress: loadProgress() !== null,
+      tutorialDone: hasCompletedTutorial(),
+    })
 
   const judgeHint = JUDGE_OPTIONS.find((option) => option.value === settings.judgeMode)?.hint ?? ''
 
@@ -228,6 +235,24 @@ export function SettingsPage(): JSX.Element {
             </Button>
           </div>
           {message ? <p className="text-[11px] text-emerald-600 dark:text-emerald-400">{message}</p> : null}
+        </Card>
+
+        {/* 游戏帮助（需求 26：老玩家也能重新进教程） */}
+        <Card className="flex flex-wrap items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold text-ink-900 dark:text-white">
+              <IconBulb size={16} className="text-amber-500" />
+              游戏帮助
+            </h2>
+            <p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">
+              第一次玩数织，或者想重新过一遍基本玩法？教程用一张 5×5
+              小图带你走完七个阶段，全程三分钟左右，随时可以退出。
+              {stats.tutorialDone ? '（你已经学完过一遍了）' : ''}
+            </p>
+          </div>
+          <Button variant="secondary" onClick={() => navigate('/tutorial')}>
+            重新查看新手教程
+          </Button>
         </Card>
 
         <Card className="flex flex-wrap items-center gap-3">

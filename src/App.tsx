@@ -6,6 +6,7 @@ import { HomePage } from './pages/HomePage'
 import { SettingsPage } from './pages/SettingsPage'
 import { StatsPage } from './pages/StatsPage'
 import { SolverPage } from './pages/SolverPage'
+import { TutorialPage } from './pages/TutorialPage'
 import { navigate, useRoute } from './router'
 import { applyTheme, useSettingsStore } from './store/settingsStore'
 
@@ -47,6 +48,9 @@ export function App(): JSX.Element {
       break
     case '/solver':
       page = <SolverPage />
+      break
+    case '/tutorial':
+      page = <TutorialPage />
       break
     case '/settings':
       page = <SettingsPage />

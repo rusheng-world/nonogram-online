@@ -93,7 +93,8 @@ export function runSolve(request: SolvePuzzleRequest, options: SolvePuzzleOption
     }
     worker.onerror = () => {
       // Worker 起不来（极少数环境）：退化成主线程同步求解，保证功能可用
-      finish({ ...solveInline(request, options), steps: [] })
+      // 注意保留 steps：需求 9.6 的逐步演示依赖它，丢掉就等于功能失效
+      finish(solveInline(request, options))
     }
 
     // signal 不可结构化克隆：Worker 侧不接收它，取消直接 terminate

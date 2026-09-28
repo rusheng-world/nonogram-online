@@ -918,3 +918,108 @@
 | 线上站点实测可玩 | ✅ 无头浏览器 13 项断言全过（首页/开一局/涂格/撤销/暂停/分享/自动解题/统计/设置/无报错） |
 | GitHub Actions | ✅ CI（lint / format:check / test / build）与 Pages 部署在 `main` 上均为 success |
 | 版本一致性 | ✅ `package.json` = `src/project.ts` = Git tag = GitHub Release = `1.1.0` |
+
+
+---
+
+## 六、第九轮：新手教程关卡（v1.2.0）
+
+本轮任务：按「交互式新手教程」清单实现一个 7 阶段教程，顺带复核「自动解题」有无未发现的 bug，最后更新 README / CHANGELOG 并发布 `1.2.0`。
+
+### D54. 教程复用游戏棋盘，而不是新建一套 TutorialBoard（本轮）
+
+- **决定**：`src/pages/TutorialPage.tsx` 直接渲染游戏页的 `<GameBoard />`，棋盘状态仍走 `gameStore`；只给 `GameBoard` 增加了两个**可选** prop：`highlight`（教学高亮）与 `guard`（落笔校验），外加 `maxCell`（教程只有 5×5，格子放大到 48px）。
+- **理由**：清单要求「复用现有游戏系统 > 新建一套游戏系统」。另建一套棋盘意味着涂格手势、长按、拖拽、撤销、键盘、无障碍都要再实现一遍，以后修 bug 还要修两处。代价是 `GameBoard` 多了三个参数 —— 全部可选，默认行为与改动前一致。
+- **备选**：给 `GameBoard` 传一整个 `mode: 'game' | 'tutorial'` 配置对象。否决：教程真正需要的只有「高亮」和「拦笔」两件事，配置对象会让 `GameBoard` 里到处出现 `if (tutorial)`，耦合更差。
+
+### D55. 教程与游戏数据隔离：一个 `tutorial` 标记 + 三处早退（本轮）
+
+- **决定**：`gameStore` 增加 `tutorial: boolean` 与 `beginTutorial` / `endTutorial`；`Puzzle.source` 增加 `'tutorial'`。`persist()`（存档）在教程模式下直接 return；`markWin()` 在教程模式下只置 `completed` 就立即返回（不写成绩 / 历史 / 每日 / 成就，也不清存档）；`applyStroke` 涂满时**不自动判胜**（改由教程页在最后一阶段主动触发收尾动画）。
+- **理由**：清单要求「教程不污染普通游戏统计」。写入口只有这三处，用一个标记 + 少量早退比在每个入口判断 `source === 'tutorial'` 更难写错。教程进度单独写 `nonogram-tutorial-v1` 一个 key。
+- **验证**：`tests/tutorial.test.ts` 断言教程对局结束时成绩 / 历史 / 成就 / 每日挑战的存储都没有被写入。
+
+### D56. 阶段划分：同一张图分 7 步拼完，而不是 7 道小题（本轮）
+
+- **决定**：7 个阶段共用一张固定的 5 × 5 「星芒」图（`..#..` / `#####` / `#####` / `#.#.#` / `..#..`），每阶段只要求完成其中一部分目标格子：数字含义 → 数字不指定位置 → 多组数字 → 列线索 → × 标记 → 组合推理 → 收尾。
+- **理由**：清单的设计理念是「玩家完成教程后，真的知道下一局该怎么看数字」。同一张图连着拼，最后一步真的能「完成整张图」，比做 7 道无关小题更有完成感；也不用为每个阶段准备一道唯一解的独立题目。
+- **代价与兜底**：阶段边界要人工设计得「恰好能被推出来」。为此写了一条强断言：每一步的目标格子在**上一步完成后的棋盘**上用 `propagate()` 必须能被推出来 —— 如果哪天有人改了阶段顺序或图案，测试会立刻失败，而不是让玩家卡住或被迫猜。
+
+### D57. 错笔只看「是否与答案矛盾」，且整笔回滚 + 鼓励式文案（本轮）
+
+- **决定**：`evaluateStroke()` 只拦两类笔触 —— 涂黑一个答案是空白的格子、把答案要涂黑的格子标成空。取消涂格、在空白格上打 ×、以及「提前涂了后面阶段才需要的格子」一律放行。被拦下时整笔（拖拽产生的一串 change）一起回滚，用柔和描边指出格子并给一句鼓励式说明，不判错、不计数、不扣分。
+- **理由**：清单要求「强制操作约束」但不能惩罚。打 × 本身是正确的逻辑动作，拦它只会让新手以为「× 是错的」；提前涂对了后面的格子也不该被拦。
+- **实现细节**：`GameBoard` 的 `guard` 在 `commitStroke` 里被调用，返回 false 时 `revertStroke()` 把整笔回滚，所以视觉上不会出现「涂了一半又弹回去」。
+
+### D58. 自动解答复核：找到一个真实且影响明显的 bug（本轮）
+
+- **发现**：`solvePuzzle` 的推理轨迹给单步的 cells 设了 `MAX_CELLS_PER_STEP = 300` 的上限，超出部分被**静默丢弃**。而逐步演示是靠「把每一步的 cells 依次折叠回棋盘」还原画面的，于是 20 × 20（400 格）的第一轮传播就直接超过 300 格 —— 演示到最后一帧，棋盘仍缺 2 ~ 25 格，与真实解不一致；50 × 50 更夸张（2500 格只记录 300）。
+- **定位方式**：写探针脚本对四档各若干题比较 `boardAfter(steps, size, steps.length - 1)` 与谜题 `solution`，40 题里有 2 题不一致，且全部落在「单步 > 300 格」的盘面上。
+- **修法**：格子**全部记录**（漏记会让演示错），只对「理由文本」限流（每步前 300 格带理由，其余 `reason` 为 `undefined`）；另外把上限从「单步」改成「整条轨迹」（`MAX_TRACE_CELLS = 150_000`）作为内存安全阀，超出即截断并置 `stepsTruncated`，界面会提示「轨迹已截断」。结论（唯一解 / 多解 / 无解）不受影响，因为它由求解本身给出。
+- **顺带修的**：① `worker.onerror` 退化为主线程求解时写死了 `steps: []`，会把推理轨迹丢掉（逐步演示直接失效）；② 逐步演示每次翻页都调一次 `boardAfter`（从第 0 步重新折叠），播放 n 个节点是 O(n²)，改成一次性预折叠 + O(1) 取帧（`frameSequence`）。
+- **再用浏览器复核时又发现一个**：点「取消」之后界面什么都不显示。原因是 `SolverPage` 的 `cancel()` 把 `handleRef` 清空了，而回填结果的 `.then` 里有 `if (handleRef.current !== handle) return` —— 于是「已取消」的结果（以及 `ResultSummary` 里专门为取消写的时间显示、状态条上的「（已取消）」）全部成了死代码。修法：区分「输入变化时的静默取消」与「用户点取消」两条路径，后者保留 handle 让结果回填，并明确显示「已取消」；被取消的那次不写入输入历史。
+- **回归测试**：新增「大棋盘：一步确定 300 格以上时不会丢格，逐步演示的终局必须等于真实解」（四档各 4 题，并断言测试数据里确实出现了 > 300 格的一步）、`frameSequence` 与逐帧折叠一致的测试、轨迹总量预算的单元测试。
+
+### D59. 教程文案单独成文件，为 i18n 留出口（本轮）
+
+- **决定**：教程里每一句用户可见文字都放在 `src/core/tutorialContent.ts`，`core/tutorial.ts` 与页面只引用 key。
+- **理由**：清单要求为国际化做准备。现在只提供中文，以后加英文只需再提供一份同结构对象，不用改组件；代价是文案与阶段定义分处两个文件。
+
+### D60. README 删掉协议宣传段（本轮）
+
+- **发现**：第六轮（D36）已经决定「不拿 MIT 当宣传点」，但第八轮重写 README 时又加回了 `## 📄 License` 章节。
+- **修法**：删掉 README 的协议章节，仓库继续保留 `LICENSE` 与 `package.json` 的 `license: MIT`（GitHub 照常显示协议）。
+- **理由**：与既有决策保持一致 —— 协议要在，但不作为卖点。
+
+### D61. 版本号升到 1.2.0（本轮）
+
+- **理由**：新增了「新手教程」这个实质性功能模块（新路由 + 新 store + 新 core 文件 + 新测试 + 新截图），按既定规则走次版本；同时把它修掉的问题写进 CHANGELOG 的 `Fixed`。
+
+### 本轮改动（文件清单）
+
+**新增**
+
+- `src/core/tutorial.ts`（固定谜题 / 7 个阶段 / 落笔校验）、`src/core/tutorialContent.ts`（全部文案）
+- `src/store/tutorialStore.ts`（教程状态机，不依赖 React，可直接单测）
+- `src/pages/TutorialPage.tsx`
+- `tests/tutorial.test.ts`（19 例）
+- `docs/screenshots/tutorial.png`、`docs/screenshots/mobile-tutorial.png`
+
+**修改（要点）**
+
+- `src/components/GameBoard.tsx`：新增可选 `highlight` / `guard` / `maxCell`；`commitStroke` 支持整笔回滚
+- `src/components/ClueStrips.tsx`：`active` 支持多行 / 多列高亮（教学高亮与 hover 合并）
+- `src/index.css`：新增 `--nb-highlight` / `--nb-soft` token 与 `data-hl` / `data-soft` / `data-dim` 样式（含 reduced-motion 兜底）
+- `src/store/gameStore.ts`：`tutorial` 标记 + `beginTutorial` / `endTutorial` + 三处早退
+- `src/core/types.ts`（`source: 'tutorial'`）、`src/core/storage.ts`（`nonogram-tutorial-v1`）、`src/router.ts`、`src/App.tsx`
+- `src/pages/HomePage.tsx`、`src/pages/SettingsPage.tsx`：教程入口（含「已学完」标记）
+- `src/core/solver.ts`、`src/core/solverSteps.ts`、`src/core/solverClient.ts`、`src/components/SolverStepPlayer.tsx`、`tests/solverPlayground.test.ts`：自动解答复核修出的问题
+- `README.md`、`CHANGELOG.md`、`DECISIONS.md`、`package.json`、`src/project.ts`（`1.1.0` → `1.2.0`）
+
+### 教程流程（Stage 0 ~ Stage 7）
+
+| 阶段 | 名称 | 玩家做什么 | 教什么 |
+| --- | --- | --- | --- |
+| 0 | 欢迎页 | 选择「开始教程」或「跳过教程」 | 数织是什么、教程会教什么、随时可退出 |
+| 1 | 认识数字 | 把第 2 行整行涂黑（线索 `5`） | 数字 = 连续黑格的个数 |
+| 2 | 数字不指定位置 | 把第 3 行整行涂黑（线索也是 `5`） | 同一个数字可以出现在不同位置 |
+| 3 | 多组数字 | 涂第 4 行的三格（`1 1 1`），中间那格由第 3 列的 `5` 决定 | 多组数字之间必须留空；列线索能反推行 |
+| 4 | 行和列一起看 | 补上第 3 列最上、最下两格 | 行线索与列线索必须同时满足 |
+| 5 | 标记空格 | 用「标记」给第 1 行其余 4 格打 × | × 表示「这里一定是空的」，方便排除 |
+| 6 | 组合推理 | 给第 5 行其余 4 格打 ×（唯一的黑格已被第 3 列确定） | 卡住时先找行 / 列的交叉点，不要猜 |
+| 7 | 完成整张图 | 给第 4 行剩下的两格打 ×，整张图完成 | 排除法收尾，得到完整图案 |
+
+### 本轮验收结果
+
+| 项 | 结果 |
+| --- | --- |
+| `pnpm lint` | ✅ 0 error / 8 warning（全部是 `react-hooks/set-state-in-effect` 类建议，与上一轮同一批） |
+| `pnpm format` | ✅ 已统一格式（Prettier 只改动了本轮新增 / 修改的几个文件） |
+| `pnpm test` | ✅ 200 用例 / 15 个文件全绿（上一轮 197，本轮 +3：轨迹回放一致性、`frameSequence`、轨迹总量预算） |
+| `pnpm build` | ✅ `tsc -b` + `vite build` 无错误 |
+| 教程浏览器验收（本地 preview + 无头 Edge，全新 profile + 禁用缓存） | ✅ **33 / 33 通过**：首页入口 / 欢迎页 / 7 个阶段依次完成 / 点错被拦且给鼓励式文案 / 提示展开 / 标记阶段笔尖 / 完成页 / 标记格数正确 / 教程不写存档与成绩 / 「已学完」持久化 / 学完后可重进 / 退出确认（含「继续教程」与「退出」）/ 刷新回到上次阶段 / 375 px 无横向滚动 / 棋盘完整可见 / 提示面板在棋盘下方 / 触摸能涂格 / 全程无运行时错误 |
+| 自动解题浏览器复核（同上） | ✅ **20 / 20 通过**：20×20 唯一解答案与真实解一致 / 逐步演示能点到最后且**终帧与真实解一致**（这一条正是本轮修掉的 bug）/ 步骤面板进度与终局文案 / 行列总数不匹配被禁用并说明原因 / 多解并排两个棋盘且确实不同、差异格高亮、不提供「用此题开始游戏」/ 无解并指出矛盾行 / 50×50 能取消且界面显示「已取消」/ 全程无运行时错误 |
+| 教程 7 阶段全部可完成 | ✅ 见浏览器验收 |
+| 教程不污染普通游戏统计 | ✅ 断言 `nonogram-progress-v1` / `nonogram-history-v1` / `nonogram-records-v1` 均未写入，只有 `nonogram-tutorial-v1` |
+| 普通游戏 / 每日挑战 / 自定义 / 分享链接未受影响 | ✅ 200 个单元测试全绿（含每日挑战、编辑器、分享码往返、存档恢复）；线上回归脚本另测 |
+| 移动端 375 px 可操作 | ✅ 无横向滚动、棋盘完整、触摸可涂格 |
+| 版本一致性 | ✅ `package.json` = `src/project.ts` = Git tag = GitHub Release = `1.2.0` |

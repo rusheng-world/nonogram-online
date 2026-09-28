@@ -559,14 +559,15 @@ export function solveFirst(
     for (;;) {
       const roundCells: SolveStepCell[] | null = trace && !limited() ? [] : null
       if (roundCells) {
+        let reasonBudget = MAX_REASONS_PER_STEP
         ctx.record = (index, value, axis, line, clues) => {
-          if (roundCells.length < MAX_CELLS_PER_STEP) {
-            roundCells.push({
-              index,
-              state: value === FILLED ? 'filled' : 'marked',
-              reason: reasonForCell(ctx.width, axis, line, clues, index, value),
-            })
-          }
+          // 只给前 MAX_REASONS_PER_STEP 格生成理由文本，但每一格都要记录下来：
+          // 逐步演示把 cells 折叠回棋盘，漏记就会让演示结果与真实解不符。
+          roundCells.push({
+            index,
+            state: value === FILLED ? 'filled' : 'marked',
+            reason: reasonBudget-- > 0 ? reasonForCell(ctx.width, axis, line, clues, index, value) : undefined,
+          })
         }
       }
       const round = propagateRound(ctx, board, ctx.stats)
@@ -775,8 +776,8 @@ export interface SolveStepCell {
    * 但自动解题页面按需求**不画 X**，只把它渲染成空白/淡色。
    */
   state: CellState
-  /** 人类可读的推导理由 */
-  reason: string
+  /** 人类可读的推导理由（一步里格子很多时，只有前若干格带理由） */
+  reason?: string
 }
 
 export interface SolveStep {
@@ -854,31 +855,59 @@ export const DEFAULT_SOLVE_NODE_LIMIT = 400_000
 export const DEFAULT_MAX_SOLUTIONS = 10
 export const DEFAULT_MAX_STEPS = 800
 
-/** 单步最多记录多少格（防止一步刷屏 + 控制内存） */
-const MAX_CELLS_PER_STEP = 300
+/**
+ * 单步里最多为多少格生成「详细理由」文本。
+ *
+ * 理由字符串是整条轨迹里最占内存的东西，所以只给每步前若干格生成；
+ * **其余格子照样记录**（只是 reason 为 undefined）—— 逐步演示靠
+ * 「把每一步的 cells 依次折叠回棋盘」还原画面（见 core/solverSteps.ts），
+ * 少记一格就会让演示出来的棋盘与真实解不一致。
+ */
+const MAX_REASONS_PER_STEP = 300
 
-/** 推理轨迹收集器：带步数上限与取消信号 */
+/**
+ * 整条轨迹最多记录多少格（安全阀）。
+ *
+ * 一轮传播最多确定 size 个格子，而 50×50 的一步就有 2500 格；不设上限时，
+ * 一次深度回溯的长搜索可能累积到上百万个格子对象，把内存吃光。超出后停在
+ * 第一个完整的步骤前缀上，并置 truncated 让界面提示「轨迹已截断」——
+ * 结论（唯一解 / 多解 / 无解）不受影响，它由求解本身给出。
+ */
+export const MAX_TRACE_CELLS = 150_000
+
+/** 推理轨迹收集器：带步数 / 总格数上限与取消信号 */
 export interface SolveTrace {
   steps: SolveStep[]
   maxSteps: number
+  maxCells: number
+  /** 已经记录的格子总数（用于判断是否超出 maxCells） */
+  cellCount: number
   truncated: boolean
   signal?: CancelSignal
   push(step: SolveStep): void
 }
 
-export function createTrace(maxSteps: number, signal?: CancelSignal): SolveTrace {
+export function createTrace(maxSteps: number, signal?: CancelSignal, maxCells = MAX_TRACE_CELLS): SolveTrace {
   const steps: SolveStep[] = []
   const trace: SolveTrace = {
     steps,
     maxSteps,
+    maxCells,
+    cellCount: 0,
     truncated: false,
     signal,
     push(step) {
-      // 超上限后不再记录（置 truncated 让调用方停止生成文案，省掉字符串开销）
       if (steps.length >= maxSteps) {
         trace.truncated = true
         return
       }
+      const cells = step.cells?.length ?? 0
+      // cellCount > 0 时才判预算：一步最多 size 格，第一步永远放得下
+      if (trace.cellCount > 0 && trace.cellCount + cells > maxCells) {
+        trace.truncated = true
+        return
+      }
+      trace.cellCount += cells
       steps.push(step)
     },
   }

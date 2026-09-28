@@ -93,7 +93,17 @@ interface GameStore {
   /** 本局新解锁的成就 id（用于结果页与弹窗） */
   unlockedAchievements: string[]
 
+  /**
+   * 教程模式（需求 14「不要让教程污染正常游戏数据」）。
+   * true 时：不写对局存档、不写成绩 / 历史 / 每日挑战 / 成就，也不会自动判胜。
+   */
+  tutorial: boolean
+
   startPuzzle(puzzle: Puzzle, judgeMode: JudgeMode, restored?: RestoredGame | null): void
+  /** 用固定教程谜题接管棋盘（教程页调用；不会碰普通对局的存档） */
+  beginTutorial(puzzle: Puzzle, board: Uint8Array): void
+  /** 退出教程：把教程棋盘从 store 里摘掉，让普通流程重新可用 */
+  endTutorial(): void
   restart(): void
   applyStroke(changes: StrokeChange[]): StrokeOutcome
   undo(): void
@@ -147,6 +157,8 @@ function refreshWrong(board: Uint8Array, prev: Uint8Array, solution: Uint8Array,
 function persist(state: GameStore): void {
   const puzzle = state.puzzle
   if (!puzzle) return
+  // 教程对局不写存档：否则会把玩家「继续上一局」的普通进度覆盖掉（需求 14）
+  if (state.tutorial) return
   const snapshot: StoredProgress = {
     puzzleId: puzzle.id,
     difficulty: puzzle.difficulty,
@@ -176,6 +188,7 @@ export const useGameStore = create<GameStore>()((set, get) => ({
   board: EMPTY_BOARD,
   wrong: EMPTY_BOARD,
   judgeMode: 'lenient',
+  tutorial: false,
   accumulatedMs: 0,
   runningSince: null,
   paused: false,
@@ -224,6 +237,50 @@ export const useGameStore = create<GameStore>()((set, get) => ({
       hoverCol: -1,
       cursor: 0,
       notice: null,
+      newRecord: false,
+      newNoHintRecord: false,
+      unlockedAchievements: [],
+      tutorial: false,
+    })
+  },
+
+  beginTutorial(puzzle, board) {
+    const size = puzzle.width * puzzle.height
+    const restored: RestoredGame = {
+      board: board.length === size ? board : new Uint8Array(size),
+      elapsedMs: 0,
+      mistakes: 0,
+      hintsUsed: 0,
+      penaltyMs: 0,
+      pauseCount: 0,
+    }
+    // 教程固定用宽松判定：点错不标红（反馈由教程自己给，语气是「还差一点」而不是判错）
+    get().startPuzzle(puzzle, 'lenient', restored)
+    set({ tutorial: true })
+  },
+
+  endTutorial() {
+    /*
+     * 只清内存状态，**不动 localStorage**：
+     * 玩家未完成的普通对局还躺在存档里，什么时候恢复由调用方决定
+     * （TutorialPage 会在退出时按需 restoreFromStored 回来）。
+     */
+    set({
+      tutorial: false,
+      puzzle: null,
+      board: new Uint8Array(0),
+      wrong: new Uint8Array(0),
+      past: [],
+      future: [],
+      started: false,
+      completed: false,
+      completedMs: 0,
+      runningSince: null,
+      paused: false,
+      notice: null,
+      hoverRow: -1,
+      hoverCol: -1,
+      cursor: 0,
       newRecord: false,
       newNoHintRecord: false,
       unlockedAchievements: [],
@@ -286,7 +343,8 @@ export const useGameStore = create<GameStore>()((set, get) => ({
     set(next)
 
     const done = isBoardComplete(nextBoard, puzzle.solution)
-    if (done) {
+    // 教程模式不让引擎自动判胜：什么时候算「通关」由教程自己决定（见 store/tutorialStore.ts）
+    if (done && !state.tutorial) {
       get().markWin(now)
     } else {
       persist({ ...state, ...next })
@@ -299,6 +357,14 @@ export const useGameStore = create<GameStore>()((set, get) => ({
     const { puzzle, mistakes, hintsUsed, judgeMode } = state
     if (!puzzle || state.completed) return
     const finalMs = elapsedOf(state, nowMs)
+    /*
+     * 教程模式：只把棋盘切到「已完成」用于展示动画，
+     * 不写最佳成绩 / 历史成绩 / 每日挑战记录 / 成就，也不清掉普通对局的存档（需求 14）。
+     */
+    if (state.tutorial) {
+      set({ completed: true, completedMs: finalMs, runningSince: null, paused: false })
+      return
+    }
     /** 本局是否暂停过：暂停过的成绩不能算「纯净成绩」（需求 29 的公平性要求） */
     const paused = state.pauseCount > 0
     set({ completed: true, completedMs: finalMs, runningSince: null, paused: false })

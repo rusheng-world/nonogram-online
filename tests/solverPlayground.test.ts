@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { computeClues } from '../src/core/clues'
 import { boardSizeFor, generatePuzzle } from '../src/core/generator'
-import { solvePuzzle, type SolvePuzzleRequest } from '../src/core/solver'
-import { boardAfter, keyStepIndexes } from '../src/core/solverSteps'
+import { createTrace, MAX_TRACE_CELLS, solvePuzzle, type SolvePuzzleRequest } from '../src/core/solver'
+import { boardAfter, frameSequence, keyStepIndexes } from '../src/core/solverSteps'
 import {
   clueFitsLine,
   parseBulkClues,
@@ -352,6 +352,79 @@ describe('推理轨迹', () => {
     expect(keys.length).toBeGreaterThan(0)
     expect(keys.length).toBeLessThan(steps.length)
     expect(keys).toContain(599)
+  })
+
+  /**
+   * 回归测试：一轮传播确定超过 300 格时，早期的实现给单步的 cells 设了 300 的上限，
+   * 多出来的格子被**静默丢弃**，于是逐步演示折叠出来的棋盘缺格、与真实解对不上
+   * （20×20 / 50×50 的第一轮几乎必然超过 300 格，所以这个问题在真实使用中很容易撞到）。
+   */
+  it('大棋盘：一步确定 300 格以上时不会丢格，逐步演示的终局必须等于真实解', () => {
+    const diffs: Difficulty[] = ['easy', 'medium', 'hard', 'expert']
+    let sawBigStep = false
+    for (const difficulty of diffs) {
+      for (let i = 0; i < 4; i++) {
+        const puzzle = generatedPuzzle(difficulty, `replay-${difficulty}-${i}`)
+        const result = solvePuzzle({
+          width: puzzle.width,
+          height: puzzle.height,
+          rowClues: puzzle.rowClues,
+          colClues: puzzle.colClues,
+        })
+        expect(result.status, `${difficulty}-${i}`).toBe('unique')
+        for (const step of result.steps) if ((step.cells?.length ?? 0) > 300) sawBigStep = true
+        // 步长与描述必须一致（描述里的数字就是本步真正的确定格数）
+        for (const step of result.steps) {
+          if (step.type !== 'propagate') continue
+          const match = /新确定 (\d+) 格/.exec(step.description)
+          if (match) expect(step.cells!.length).toBe(Number(match[1]))
+        }
+        const folded = boardAfter(result.steps, puzzle.width * puzzle.height, result.steps.length - 1)
+        expect(
+          Array.from(folded, (v) => (v === 1 ? 1 : 0)),
+          `${difficulty}-${i}`,
+        ).toEqual(gridOf(puzzle.solution))
+      }
+    }
+    expect(sawBigStep, '测试数据里应当包含"一步 300 格以上"的情形').toBe(true)
+  })
+
+  it('frameSequence 与逐帧折叠的结果一致（逐步演示用的快照）', () => {
+    const puzzle = generatedPuzzle('medium', 'frames-a')
+    const result = solvePuzzle({
+      width: puzzle.width,
+      height: puzzle.height,
+      rowClues: puzzle.rowClues,
+      colClues: puzzle.colClues,
+    })
+    const size = puzzle.width * puzzle.height
+    const keys = keyStepIndexes(result.steps)
+    const frames = frameSequence(result.steps, size, keys)
+    expect(frames.length).toBe(keys.length)
+    for (let i = 0; i < keys.length; i++) {
+      expect(Array.from(frames[i]), `frame ${i}`).toEqual(Array.from(boardAfter(result.steps, size, keys[i])))
+    }
+    // 最后一帧 = 完整解
+    expect(Array.from(frames[frames.length - 1], (v) => (v === 1 ? 1 : 0))).toEqual(gridOf(puzzle.solution))
+  })
+
+  it('轨迹格子总量超预算时截断轨迹（不影响求解结论）', () => {
+    const trace = createTrace(100, undefined, 10)
+    const step = (n: number) => ({
+      type: 'propagate' as const,
+      depth: 0,
+      cells: Array.from({ length: n }, (_, i) => ({ index: i, state: 'filled' as const })),
+      description: 'x',
+    })
+    trace.push(step(8))
+    expect(trace.truncated).toBe(false)
+    trace.push(step(2))
+    expect(trace.truncated).toBe(false)
+    trace.push(step(1))
+    expect(trace.truncated).toBe(true)
+    expect(trace.steps.length).toBe(2)
+    expect(trace.cellCount).toBe(10)
+    expect(MAX_TRACE_CELLS).toBeGreaterThan(10_000)
   })
 })
 

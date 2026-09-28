@@ -63,6 +63,13 @@ const STATUS_META: Record<
   },
 }
 
+/** 用户点了「取消」时的状态条（不是超时，也不是算不出来） */
+const CANCELLED_META = {
+  label: '已取消',
+  tone: 'default' as const,
+  bar: 'bg-ink-500/10 text-ink-700 ring-ink-500/20 dark:text-ink-200',
+}
+
 function clampSize(value: number): number {
   if (!Number.isFinite(value)) return MIN_SOLVER_SIZE
   return Math.min(MAX_SOLVER_SIZE, Math.max(MIN_SOLVER_SIZE, Math.round(value)))
@@ -164,6 +171,16 @@ export function SolverPage(): JSX.Element {
     setRunning(false)
   }, [])
 
+  /**
+   * 用户主动点「取消」。
+   * 与上面的静默 cancel() 不同：这里**保留** handle，让 promise 回填成
+   * 「已取消」的结果，界面才能给出明确反馈（此前直接清空 handle，回填被跳过，
+   * 于是取消后什么都不显示）。
+   */
+  const onCancelClick = () => {
+    handleRef.current?.cancel()
+  }
+
   useEffect(() => {
     cancel()
     setResult(null)
@@ -203,7 +220,9 @@ export function SolverPage(): JSX.Element {
       setRunning(false)
       setElapsedMs(outcome.stats.elapsedMs)
       setResult(outcome)
-      setHistory(pushSolverHistory({ width, height, rowClues, colClues, status: outcome.status }))
+      // 被取消的这次不记历史：它没有得出任何结论，记进去只会污染列表
+      if (!outcome.cancelled)
+        setHistory(pushSolverHistory({ width, height, rowClues, colClues, status: outcome.status }))
     })
   }
 
@@ -300,7 +319,7 @@ export function SolverPage(): JSX.Element {
     downloadBoardPng(solution, width, height, `nonogram-${width}x${height}.png`, { cell: 28 })
   }
 
-  const meta = result ? STATUS_META[result.status] : null
+  const meta = result ? (result.cancelled ? CANCELLED_META : STATUS_META[result.status]) : null
   const sizeHint =
     Math.max(width, height) > SOLVER_SIZE_HINT
       ? `${width}×${height} 超过 ${SOLVER_SIZE_HINT}×${SOLVER_SIZE_HINT}，计算量较大，会自动放到后台线程求解（可随时取消）。`
@@ -475,7 +494,7 @@ export function SolverPage(): JSX.Element {
             </Button>
             {running ? (
               <>
-                <Button variant="secondary" onClick={cancel}>
+                <Button variant="secondary" onClick={onCancelClick}>
                   取消
                 </Button>
                 <span className="text-[11px] tabular-nums text-ink-500 dark:text-ink-400">
@@ -511,10 +530,17 @@ export function SolverPage(): JSX.Element {
               </p>
             ) : null}
 
-            {result.status === 'timeout' ? (
+            {result.cancelled ? (
+              <p className="text-xs leading-relaxed text-ink-600 dark:text-ink-300">
+                这次计算已经中止，没有得出结论（已用 {(result.stats.elapsedMs / 1000).toFixed(1)} 秒）。
+                可以直接再点一次「开始求解」，或先调整线索。
+              </p>
+            ) : null}
+
+            {result.status === 'timeout' && !result.cancelled ? (
               <p className="text-xs leading-relaxed text-ink-600 dark:text-ink-300">
                 在 {timeLimitMs / 1000} 秒内没能得出结论（已用 {(result.stats.elapsedMs / 1000).toFixed(1)} 秒）。
-                可以放宽超时上限、减小尺寸，或检查线索是否有笔误。{result.cancelled ? '（本次是被取消的）' : ''}
+                可以放宽超时上限、减小尺寸，或检查线索是否有笔误。
               </p>
             ) : null}
 

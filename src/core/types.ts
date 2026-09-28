@@ -48,7 +48,18 @@ export function stateToCell(state: CellState): number {
   return STATE_TO_CELL[state]
 }
 
-export type PuzzleSource = 'generated' | 'daily' | 'editor' | 'solver'
+export type PuzzleSource = 'generated' | 'daily' | 'editor' | 'solver' | 'tutorial'
+
+/*
+ * 来源的语义（需求 14「不要让教程污染正常游戏数据」）：
+ *   generated —— 自动生成的四档难度
+ *   daily     —— 每日挑战（会写 daily 记录）
+ *   editor / solver —— 自定义 / 从自动解题转来的题
+ *   tutorial  —— 新手教程：不写存档、成绩、历史、每日挑战、成就（见 store/gameStore.ts）
+ *
+ * 用「来源」而不是再存一个 `mode` 字段：来源在生成谜题时就定下来了，
+ * 会随存档 / 分享链接一起走，比运行时另传一个参数更难出错。
+ */
 
 export interface Puzzle {
   id: string

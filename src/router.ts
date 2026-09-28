@@ -6,6 +6,7 @@
  *   #/play?s=<code>   打开分享链接
  *   #/editor          自定义编辑器
  *   #/solver          自动解题（输入线索求解 + 推理步骤演示）
+ *   #/tutorial        新手教程（7 个阶段的交互式教学）
  *   #/stats           统计与成就
  *   #/settings        设置
  */
