@@ -163,7 +163,12 @@ export function HomePage({ params }: { params: URLSearchParams }): JSX.Element {
      * 交给文档滚动即可，sticky 头部依然生效。
      */
     <div className="app-flow flex flex-1 flex-col">
-      <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-ink-200/70 bg-ink-50/85 px-3 py-2.5 backdrop-blur dark:border-ink-800 dark:bg-ink-950/85 sm:px-6">
+      {/*
+       * flex-wrap：320px 这类极窄屏下，标题块 + 右侧导航（主题/编辑器/自动解题/设置/GitHub）
+       * 放不下一行，此前会让整页横向溢出约 24px。允许换行后，导航会整块落到第二行，
+       * ≥ 375px 时依旧是一行（实测无变化）。
+       */}
+      <header className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-ink-200/70 bg-ink-50/85 px-3 py-2.5 backdrop-blur dark:border-ink-800 dark:bg-ink-950/85 sm:px-6">
         <div className="flex items-center gap-2">
           <span className="grid h-8 w-8 place-items-center rounded-xl bg-indigo-600 text-sm font-bold text-white">
             数

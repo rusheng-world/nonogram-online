@@ -5,6 +5,7 @@ import {
   decodeSolution,
   encodePuzzleCode,
   encodeSolution,
+  MAX_SHARE_CODE_LENGTH,
   packBits,
   puzzleFromCode,
   shortHash,
@@ -72,6 +73,53 @@ describe('位压缩与分享码', () => {
   it('shortHash 稳定', () => {
     expect(shortHash('abc')).toBe(shortHash('abc'))
     expect(shortHash('abc')).not.toBe(shortHash('abd'))
+  })
+})
+
+describe('分享码输入边界（长度上限 / 难度回退）', () => {
+  it('50×50 的最大合法分享码仍在长度上限内，且能正常还原', () => {
+    const puzzle = makePuzzle(50, 50, 20260928)
+    const code = encodePuzzleCode(puzzle)
+    // 313 字节 -> 418 字符 base64 + 11 字符头部 = 429（与 README 的说明一致）
+    expect(code.length).toBe(429)
+    expect(code.length).toBeLessThanOrEqual(MAX_SHARE_CODE_LENGTH)
+    const restored = puzzleFromCode(code)
+    expect(restored?.width).toBe(50)
+    expect(restored?.height).toBe(50)
+    expect(Array.from(restored!.solution)).toEqual(Array.from(puzzle.solution))
+  })
+
+  it('长度上限是硬门槛：超出 1 个字符就拒绝，且不做解码', () => {
+    const over = 'v1.50.50.h.' + 'A'.repeat(MAX_SHARE_CODE_LENGTH - 10)
+    expect(over.length).toBe(MAX_SHARE_CODE_LENGTH + 1)
+    expect(decodePuzzleCode(over)).toBeNull()
+  })
+
+  it('几百 KB 的异常分享码被直接拒绝（不会做无意义的 base64 解码）', () => {
+    expect(decodePuzzleCode('v1.5.5.e.' + 'A'.repeat(500_000))).toBeNull()
+    expect(puzzleFromCode('v1.50.50.h.' + 'A'.repeat(500_000))).toBeNull()
+  })
+
+  it('难度段非法（未知 / 空 / 大写）时回退成 medium，而不是让链接作废', () => {
+    const parts = encodePuzzleCode(makePuzzle(5, 5, 7)).split('.')
+    const withTag = (tag: string) => [parts[0], parts[1], parts[2], tag, parts[4]].join('.')
+
+    expect(decodePuzzleCode(withTag('z'))?.difficulty).toBe('medium')
+    expect(decodePuzzleCode(withTag(''))?.difficulty).toBe('medium')
+    expect(decodePuzzleCode(withTag('EASY'))?.difficulty).toBe('medium')
+    // 合法标签仍然被尊重
+    expect(decodePuzzleCode(withTag('e'))?.difficulty).toBe('easy')
+    expect(decodePuzzleCode(withTag('x'))?.difficulty).toBe('expert')
+    // 回退后的难度会一路传到谜题上
+    expect(puzzleFromCode(withTag('z'))?.difficulty).toBe('medium')
+  })
+
+  it('段数过少 / 过多一律拒绝', () => {
+    expect(decodePuzzleCode('v1.5.5')).toBeNull()
+    expect(decodePuzzleCode('v1.5.5.m')).toBeNull()
+    const code = encodePuzzleCode(makePuzzle(5, 5, 7))
+    expect(decodePuzzleCode(code + '.extra')).toBeNull()
+    expect(decodePuzzleCode('v1.5.5.m')).toBeNull()
   })
 })
 

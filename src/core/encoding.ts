@@ -105,8 +105,29 @@ export interface DecodedPuzzle {
   solution: Uint8Array
 }
 
-/** 解析分享码（严格校验，非法输入返回 null） */
+/**
+ * 分享码长度上限（在切分与解码之前先挡掉异常输入）。
+ *
+ * 合法分享码最长的一档是 50×50 的编辑器谜题：
+ *   2500 格 → ceil(2500 / 8) = 313 字节 → base64（无填充）418 字符，
+ *   加上 `v1.50.50.h.` 这段 11 字符的头部，最长 429 字符。
+ * 上限取 512（约 19% 余量）：既覆盖任何合法分享码，又让「#/play?s=<几百 KB 的串>」
+ * 在切分与 base64 解码之前就被拒绝，不对异常输入做无意义的字符扫描与内存分配。
+ */
+export const MAX_SHARE_CODE_LENGTH = 512
+
+/**
+ * 解析分享码，非法输入返回 null。
+ *
+ * 结构校验是严格的：必须是 5 段、首段为 `v1`、宽高是 5~50 的整数、
+ * 图案段可解码且长度足够；整个码还要通过 MAX_SHARE_CODE_LENGTH 长度门槛。
+ *
+ * **难度段是唯一的例外**：`e / m / h / x` 之外的取值（包括空段）一律回退成 `medium`，
+ * 而不是让整条链接作废 —— 难度只是随码携带的标签，图案才是题目本体；
+ * 自定义谜题在编辑器里还会按图案重新计算一次难度（见 EditorPage）。
+ */
 export function decodePuzzleCode(code: string): DecodedPuzzle | null {
+  if (code.length > MAX_SHARE_CODE_LENGTH) return null
   const parts = code.split('.')
   if (parts.length !== 5 || parts[0] !== 'v1') return null
   const width = Number(parts[1])

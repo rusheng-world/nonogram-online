@@ -1,7 +1,7 @@
 # Code Audit Report
 
-> 项目：Nonogram Online（`C:\Users\Lenovo\Documents\Codex\2026-09-21\prompt-cursor-claude-code-codex-agent`）
-> 版本：v1.2.0 · 提交：`3423b35`
+> 项目：Nonogram Online（本仓库根目录）
+> 版本：v1.2.0 · 提交：`3423b35`（本报告的修复已随 v1.2.1 发布；v1.2.2 追加了分享码长度上限与文档一致性修正）
 > 审查性质：**第一阶段只读审查**。本次不修改任何源码 / 测试 / 配置，仅交付本报告。
 > 审查日期：2026-09-28 · 审查范围：仓库全部源码、测试、CI、构建与文档（不含 `node_modules`、`dist`、`coverage`）
 
