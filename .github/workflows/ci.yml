@@ -19,7 +19,7 @@ jobs:
         with:
           # pnpm 11 要求 Node >= 22.13
           node-version: 22
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         # 不写 version：读取 package.json 的 packageManager，避免版本冲突
       - name: Install
         run: pnpm install --frozen-lockfile

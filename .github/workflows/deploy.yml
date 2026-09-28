@@ -25,7 +25,7 @@ jobs:
         with:
           # pnpm 11 要求 Node >= 22.13，因此不能用 Node 20
           node-version: 22
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         # 不写 version：让 action 读取 package.json 里的 packageManager，
         # 避免「workflow 里写 9、package.json 里写 11」导致的
         # "Multiple versions of pnpm specified" 报错（已实测踩过）。
